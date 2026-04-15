@@ -134,6 +134,22 @@ export default function MockDraftPage() {
 
   const assignPlayer = (playerName: string) => {
     if (!activePick || locked) return;
+
+    // Check for duplicate usage — warn but allow
+    const currentCount = playerUsageCount.get(playerName) || 0;
+    if (currentCount > 0) {
+      const slots = Object.entries(picks)
+        .filter(([, name]) => name === playerName)
+        .map(([slot]) => Number(slot));
+      setDuplicateModal({ playerName, usageCount: currentCount, slots });
+      return;
+    }
+
+    proceedWithAssignment(playerName);
+  };
+
+  const proceedWithAssignment = (playerName: string) => {
+    if (!activePick || locked) return;
     const newPicks = { ...picks, [activePick]: playerName };
 
     // Check for contradictions (only if user has prop answers)
@@ -186,15 +202,25 @@ export default function MockDraftPage() {
     saveTimeout.current = setTimeout(() => saveMock(newPicks), 1500);
   };
 
-  // Already-picked players
-  const pickedPlayers = useMemo(() => new Set(Object.values(picks)), [picks]);
+  // Count how many times each player is used
+  const playerUsageCount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const name of Object.values(picks)) {
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    return counts;
+  }, [picks]);
+
+  // Duplicate player warning modal
+  const [duplicateModal, setDuplicateModal] = useState<{
+    playerName: string;
+    usageCount: number;
+    slots: number[];
+  } | null>(null);
 
   // Filtered and sorted prospects
   const displayProspects = useMemo(() => {
     let list = [...prospects];
-
-    // Filter out already-picked
-    list = list.filter(p => !pickedPlayers.has(p.name));
 
     // Position filter
     if (positionFilter !== 'All') {
@@ -216,7 +242,7 @@ export default function MockDraftPage() {
     else if (sortMode === 'position') list.sort((a, b) => a.position.localeCompare(b.position) || a.rank - b.rank);
 
     return list;
-  }, [prospects, pickedPlayers, positionFilter, searchText, sortMode]);
+  }, [prospects, positionFilter, searchText, sortMode]);
 
   const positions = useMemo(() => {
     const set = new Set(prospects.map(p => p.position));
@@ -288,6 +314,7 @@ export default function MockDraftPage() {
               const playerName = picks[slot.pick];
               const prospect = prospects.find(p => p.name === playerName);
               const isActive = activePick === slot.pick;
+              const isDuplicate = playerName && (playerUsageCount.get(playerName) || 0) > 1;
 
               return (
                 <button
@@ -296,9 +323,11 @@ export default function MockDraftPage() {
                   className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg border transition ${
                     isActive
                       ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                      : playerName
-                        ? 'border-card-border bg-card hover:border-muted'
-                        : 'border-dashed border-card-border bg-white hover:border-muted'
+                      : isDuplicate
+                        ? 'border-amber-200 bg-amber-50/50 hover:border-amber-300'
+                        : playerName
+                          ? 'border-card-border bg-card hover:border-muted'
+                          : 'border-dashed border-card-border bg-white hover:border-muted'
                   }`}
                 >
                   <div className="w-8 text-center">
@@ -315,6 +344,11 @@ export default function MockDraftPage() {
                         </span>
                       )}
                       <span className="text-sm font-medium truncate">{playerName}</span>
+                      {isDuplicate && (
+                        <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
+                          {playerUsageCount.get(playerName)}x
+                        </span>
+                      )}
                       {prospect && <span className="text-xs text-muted hidden sm:inline">{prospect.college}</span>}
                       {!locked && (
                         <span
@@ -395,23 +429,36 @@ export default function MockDraftPage() {
                 ) : displayProspects.length === 0 ? (
                   <p className="text-muted text-sm text-center py-6">No matching players</p>
                 ) : (
-                  displayProspects.map(p => (
-                    <button
-                      key={p.name}
-                      onClick={() => assignPlayer(p.name)}
-                      disabled={locked}
-                      className="w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-card-border bg-white hover:border-primary hover:bg-primary/5 transition disabled:opacity-50"
-                    >
-                      <span className="text-xs text-muted w-6 text-right font-mono">{p.rank}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded border ${POSITION_COLORS[p.position] || 'bg-gray-100 text-gray-600'}`}>
-                        {p.position}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm font-medium">{p.name}</span>
-                        <span className="text-xs text-muted ml-1.5">{p.college}</span>
-                      </div>
-                    </button>
-                  ))
+                  displayProspects.map(p => {
+                    const usageCount = playerUsageCount.get(p.name) || 0;
+                    const isUsed = usageCount > 0;
+                    return (
+                      <button
+                        key={p.name}
+                        onClick={() => assignPlayer(p.name)}
+                        disabled={locked}
+                        className={`w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-lg border transition disabled:opacity-50 ${
+                          isUsed
+                            ? 'border-card-border bg-gray-50 opacity-60 hover:opacity-90 hover:border-amber-300'
+                            : 'border-card-border bg-white hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        <span className="text-xs text-muted w-6 text-right font-mono">{p.rank}</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded border ${POSITION_COLORS[p.position] || 'bg-gray-100 text-gray-600'}`}>
+                          {p.position}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <span className={`text-sm font-medium ${isUsed ? 'text-muted' : ''}`}>{p.name}</span>
+                          <span className="text-xs text-muted ml-1.5">{p.college}</span>
+                        </div>
+                        {isUsed && (
+                          <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                            {usageCount}x
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -436,6 +483,42 @@ export default function MockDraftPage() {
           </div>
         )}
       </div>
+
+      {/* Duplicate Player Modal */}
+      {duplicateModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setDuplicateModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-slide-in" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-2xl">🔄</span>
+              <h3 className="text-lg font-bold">Player Already Used</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-2">
+              <strong>{duplicateModal.playerName}</strong> is already mocked at pick{duplicateModal.slots.length > 1 ? 's' : ''}{' '}
+              <strong>{duplicateModal.slots.map(s => `#${s}`).join(', ')}</strong>.
+            </p>
+            <p className="text-xs text-muted mb-5">
+              Using the same player multiple times is allowed — it can be a valid strategy to maximize your chances.
+            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  setDuplicateModal(null);
+                  proceedWithAssignment(duplicateModal.playerName);
+                }}
+                className="w-full py-2.5 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary-light transition"
+              >
+                Use Again at #{activePick}
+              </button>
+              <button
+                onClick={() => setDuplicateModal(null)}
+                className="w-full py-2.5 bg-white border border-card-border text-foreground rounded-lg text-sm font-semibold hover:bg-gray-50 transition"
+              >
+                Pick Someone Else
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Contradiction Modal */}
       {contradictionModal && (
