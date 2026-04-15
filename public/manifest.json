@@ -1,0 +1,25 @@
+{
+  "name": "Draft Props Live",
+  "short_name": "Draft Props",
+  "description": "NFL Draft Prop Pool — predict the picks, win the pool",
+  "start_url": "/picks",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#013369",
+  "orientation": "portrait",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
