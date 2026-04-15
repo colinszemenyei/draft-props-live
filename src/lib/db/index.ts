@@ -8,7 +8,11 @@ let _sqlite: Database.Database | null = null;
 let _db: BetterSQLite3Database<typeof schema> | null = null;
 
 function getDbPath() {
-  const dbDir = process.env.NODE_ENV === 'production' ? '/data' : path.join(process.cwd(), 'data');
+  const dbDir = process.env.DB_PATH
+    ? path.dirname(process.env.DB_PATH)
+    : process.env.NODE_ENV === 'production'
+      ? path.join(process.cwd(), 'data')
+      : path.join(process.cwd(), 'data');
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
   }
