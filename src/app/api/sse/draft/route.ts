@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth';
 import { addClient, removeClient } from './clients';
 import { v4 as uuid } from 'uuid';
 import { initializeDatabase } from '@/lib/db/init';
+import { ensurePollingIfLive } from '@/lib/scraper';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +13,10 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return new Response('Unauthorized', { status: 401 });
   }
+
+  // Auto-resume polling if draft is live (handles server restarts)
+  const year = parseInt(process.env.DRAFT_YEAR || '2026');
+  ensurePollingIfLive(year);
 
   const clientId = uuid();
 

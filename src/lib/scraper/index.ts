@@ -245,3 +245,28 @@ export function getScraperStatus() {
     failureCount,
   };
 }
+
+// Auto-resume polling if the draft is live (handles server restarts on free tier)
+let pollingCheckDone = false;
+export function ensurePollingIfLive(year: number) {
+  if (pollingInterval || pollingCheckDone) return;
+  pollingCheckDone = true;
+
+  // Check draft status asynchronously and start polling if live
+  (async () => {
+    try {
+      const result = await client.execute({
+        sql: 'SELECT status FROM draft_years WHERE year = ?',
+        args: [year],
+      });
+      const row = result.rows[0];
+      if (row && row.status === 'live') {
+        console.log(`Draft is live — auto-resuming polling for ${year}`);
+        startPolling(year);
+      }
+    } catch {
+      // DB not ready yet, will retry on next SSE connection
+      pollingCheckDone = false;
+    }
+  })();
+}
