@@ -150,7 +150,7 @@ export async function seedStarterQuestions(year: number) {
       answerOptions: ['Yes', 'No'],
       points: 1,
       category: 'Wild Card',
-      scoringRule: { type: 'manual', description: 'Commissioner resolves manually' },
+      scoringRule: { type: 'trade_in_range', pickStart: 1, pickEnd: 5 },
     },
     {
       questionText: 'Which conference will produce the most Round 1 picks?',
@@ -182,7 +182,7 @@ export async function seedStarterQuestions(year: number) {
       answerOptions: ['Yes', 'No'],
       points: 1,
       category: 'Wild Card',
-      scoringRule: { type: 'manual', description: 'Commissioner resolves manually' },
+      scoringRule: { type: 'heisman_finalist_drafted' },
     },
   ];
 

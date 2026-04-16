@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import conferences from '../conferences.json';
 import { scoreAllMockDrafts, getMockLeaderboard } from './mock-scoring';
+import { HEISMAN_FINALISTS_2025 } from '../heisman';
 
 const DEFENSIVE_POSITIONS = ['CB', 'S', 'LB', 'DT', 'DE', 'EDGE'];
 const OL_POSITIONS = ['OT', 'IOL', 'G', 'C', 'OL'];
@@ -42,6 +43,8 @@ interface DraftPick {
   position: string;
   college: string;
   conference: string;
+  isTrade: boolean;
+  originalTeam: string;
 }
 
 function resolveQuestion(
@@ -281,6 +284,85 @@ function resolveQuestion(
       return null;
     }
 
+    case 'trade_in_range': {
+      // Did a trade happen within pick range [start, end]?
+      const start = rule.pickStart as number;
+      const end = rule.pickEnd as number;
+      const rangePicksIn = picks.filter(p => p.pickNumber >= start && p.pickNumber <= end);
+      // Need all picks in range before resolving
+      if (rangePicksIn.length < (end - start + 1) && picks.length < 32) return null;
+      const hasTrade = rangePicksIn.some(p => p.isTrade);
+      return { resolved: true, isCorrect: (answer === 'Yes') === hasTrade };
+    }
+
+    case 'trade_count': {
+      // Over/under on total trades in round 1
+      const tradeThreshold = rule.threshold as number;
+      const tradeCount = picks.filter(p => p.isTrade).length;
+      // Can resolve early if already over
+      if (tradeCount > tradeThreshold) {
+        return { resolved: true, isCorrect: answer === 'Over' };
+      }
+      // Can resolve if remaining picks can't reach threshold
+      const tradeRemaining = 32 - picks.length;
+      if (tradeCount + tradeRemaining < tradeThreshold) {
+        return { resolved: true, isCorrect: answer === 'Under' };
+      }
+      if (picks.length >= 32) {
+        return { resolved: true, isCorrect: tradeCount > tradeThreshold ? answer === 'Over' : answer === 'Under' };
+      }
+      return null;
+    }
+
+    case 'trade_first_pick': {
+      // Which pick number is the first trade?
+      const tradePicks = picks.filter(p => p.isTrade).sort((a, b) => a.pickNumber - b.pickNumber);
+      if (picks.length >= 32 && tradePicks.length === 0) {
+        // No trades at all — "No trades" answer is correct
+        return { resolved: true, isCorrect: answer.includes('No trade') || answer.includes('None') };
+      }
+      if (tradePicks.length === 0) return null;
+      const firstTrade = tradePicks[0];
+      const tradeRanges = parseRange(answer);
+      if (!tradeRanges) {
+        // Check for "No trades" answer
+        return { resolved: true, isCorrect: false };
+      }
+      return { resolved: true, isCorrect: firstTrade.pickNumber >= tradeRanges[0] && firstTrade.pickNumber <= tradeRanges[1] };
+    }
+
+    case 'heisman_finalist_drafted': {
+      // Was any non-winner Heisman finalist drafted in round 1?
+      const nonWinners = HEISMAN_FINALISTS_2025.filter(h => !h.isWinner);
+      const draftedFinalist = nonWinners.some(h =>
+        picks.some(p => playerNamesMatch(p.playerName, h.name))
+      );
+      // Can resolve early if one was already drafted
+      if (draftedFinalist) {
+        return { resolved: true, isCorrect: answer === 'Yes' };
+      }
+      if (picks.length >= 32) {
+        return { resolved: true, isCorrect: answer === 'No' };
+      }
+      return null;
+    }
+
+    case 'heisman_winner_pick': {
+      // What pick range will the Heisman winner go in?
+      const winner = HEISMAN_FINALISTS_2025.find(h => h.isWinner);
+      if (!winner) return null;
+      const winnerPick = picks.find(p => playerNamesMatch(p.playerName, winner.name));
+      if (!winnerPick) {
+        if (picks.length >= 32) {
+          return { resolved: true, isCorrect: answer.includes('Not in Round 1') || answer.includes('Undrafted') };
+        }
+        return null;
+      }
+      const hRanges = parseRange(answer);
+      if (!hRanges) return { resolved: true, isCorrect: false };
+      return { resolved: true, isCorrect: winnerPick.pickNumber >= hRanges[0] && winnerPick.pickNumber <= hRanges[1] };
+    }
+
     case 'manual': {
       // Commissioner resolves manually via correct_answer field
       if (question.correctAnswer) {
@@ -315,6 +397,8 @@ export async function scoreAllEntries(year: number) {
     position: p.position,
     college: p.college,
     conference: p.conference,
+    isTrade: p.isTrade ?? false,
+    originalTeam: p.originalTeam || '',
   }));
 
   for (const entry of allEntries) {

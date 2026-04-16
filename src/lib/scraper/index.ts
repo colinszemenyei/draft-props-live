@@ -6,6 +6,21 @@ import { v4 as uuid } from 'uuid';
 import { getConferenceForCollege } from '../scoring/engine';
 import { scoreAllEntries } from '../scoring/engine';
 import { broadcastEvent } from '@/app/api/sse/draft/clients';
+import { DRAFT_ORDER_2026 } from '../draft-order';
+
+// Build original team lookup for trade detection
+const originalTeamForPick = new Map<number, string>();
+for (const slot of DRAFT_ORDER_2026) {
+  originalTeamForPick.set(slot.pick, slot.team);
+}
+
+function isTradeDetected(pickNumber: number, actualTeam: string): boolean {
+  const originalTeam = originalTeamForPick.get(pickNumber);
+  if (!originalTeam || !actualTeam) return false;
+  // Normalize and compare — if the team making the pick differs from the original, it's a trade
+  const normalize = (t: string) => t.toLowerCase().replace(/[^a-z]/g, '');
+  return normalize(originalTeam) !== normalize(actualTeam);
+}
 
 const POSITION_MAP: Record<string, string> = {
   'QB': 'QB', 'RB': 'RB', 'WR': 'WR', 'TE': 'TE',
@@ -187,6 +202,8 @@ export async function pollDraftPicks(year: number) {
     if (!existing) {
       const college = normalizeCollege(pick.college);
       const conference = getConferenceForCollege(college);
+      const trade = isTradeDetected(pick.pickNumber, pick.team);
+      const origTeam = originalTeamForPick.get(pick.pickNumber) || '';
 
       await db.insert(draftPicks).values({
         id: uuid(),
@@ -197,6 +214,8 @@ export async function pollDraftPicks(year: number) {
         position: normalizePosition(pick.position),
         college,
         conference,
+        isTrade: trade,
+        originalTeam: origTeam,
       }).run();
 
       newPicksCount++;

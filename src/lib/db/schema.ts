@@ -75,6 +75,8 @@ export const draftPicks = sqliteTable('draft_picks', {
   position: text('position').notNull(),
   college: text('college').notNull(),
   conference: text('conference').notNull(),
+  isTrade: integer('is_trade', { mode: 'boolean' }).notNull().default(false),
+  originalTeam: text('original_team'),
   recordedAt: text('recorded_at').notNull().$defaultFn(() => new Date().toISOString()),
 });
 

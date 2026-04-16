@@ -50,6 +50,8 @@ export async function runMigrations() {
       position TEXT NOT NULL,
       college TEXT NOT NULL,
       conference TEXT NOT NULL,
+      is_trade INTEGER NOT NULL DEFAULT 0,
+      original_team TEXT,
       recorded_at TEXT NOT NULL,
       UNIQUE(year, pick_number)
     );
