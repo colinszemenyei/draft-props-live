@@ -1,4 +1,4 @@
-import { db, sqlite } from '../db';
+import { db, client } from '../db';
 import { propQuestions, entries, scores, draftPicks } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
@@ -304,10 +304,10 @@ function parseRange(rangeStr: string): [number, number] | null {
   return [parseInt(match[1]), parseInt(match[2])];
 }
 
-export function scoreAllEntries(year: number) {
-  const allPicks = db.select().from(draftPicks).where(eq(draftPicks.year, year)).all();
-  const allQuestions = db.select().from(propQuestions).where(eq(propQuestions.year, year)).all();
-  const allEntries = db.select().from(entries).where(eq(entries.year, year)).all();
+export async function scoreAllEntries(year: number) {
+  const allPicks = await db.select().from(draftPicks).where(eq(draftPicks.year, year)).all();
+  const allQuestions = await db.select().from(propQuestions).where(eq(propQuestions.year, year)).all();
+  const allEntries = await db.select().from(entries).where(eq(entries.year, year)).all();
 
   const pickData: DraftPick[] = allPicks.map(p => ({
     pickNumber: p.pickNumber,
@@ -317,75 +317,74 @@ export function scoreAllEntries(year: number) {
     conference: p.conference,
   }));
 
-  // Use a transaction for atomic scoring
-  const stmt = sqlite.transaction(() => {
-    for (const entry of allEntries) {
-      const userPicks = entry.picks as Record<string, unknown>;
+  for (const entry of allEntries) {
+    const userPicks = entry.picks as Record<string, unknown>;
 
-      for (const question of allQuestions) {
-        const userAnswer = userPicks[question.id];
-        const result = resolveQuestion(question, pickData, userAnswer);
+    for (const question of allQuestions) {
+      const userAnswer = userPicks[question.id];
+      const result = resolveQuestion(question, pickData, userAnswer);
 
-        if (result && result.resolved) {
-          // Calculate points
-          let pointsEarned = 0;
-          if (result.isCorrect) {
-            pointsEarned = question.points;
-          }
+      if (result && result.resolved) {
+        // Calculate points
+        let pointsEarned = 0;
+        if (result.isCorrect) {
+          pointsEarned = question.points;
+        }
 
-          // Special: ordering partial credit
-          if (question.questionType === 'ordering' && !result.isCorrect && userAnswer) {
-            const rule = question.scoringRule as Record<string, unknown>;
-            if (rule.partialCredit) {
-              // Check if exactly 2 correct
-              const players = rule.players as string[];
-              const playerPicksList: { name: string; pickNumber: number }[] = [];
-              for (const p of players) {
-                const pick = pickData.find(pk => playerNamesMatch(pk.playerName, p));
-                if (pick) playerPicksList.push({ name: p, pickNumber: pick.pickNumber });
+        // Special: ordering partial credit
+        if (question.questionType === 'ordering' && !result.isCorrect && userAnswer) {
+          const rule = question.scoringRule as Record<string, unknown>;
+          if (rule.partialCredit) {
+            // Check if exactly 2 correct
+            const players = rule.players as string[];
+            const playerPicksList: { name: string; pickNumber: number }[] = [];
+            for (const p of players) {
+              const pick = pickData.find(pk => playerNamesMatch(pk.playerName, p));
+              if (pick) playerPicksList.push({ name: p, pickNumber: pick.pickNumber });
+            }
+            if (playerPicksList.length === players.length) {
+              const correctOrder = [...playerPicksList].sort((a, b) => a.pickNumber - b.pickNumber).map(p => p.name);
+              const userOrder = JSON.parse(String(userAnswer)) as string[];
+              let correctCount = 0;
+              for (let i = 0; i < correctOrder.length; i++) {
+                if (correctOrder[i] === userOrder[i]) correctCount++;
               }
-              if (playerPicksList.length === players.length) {
-                const correctOrder = [...playerPicksList].sort((a, b) => a.pickNumber - b.pickNumber).map(p => p.name);
-                const userOrder = JSON.parse(String(userAnswer)) as string[];
-                let correctCount = 0;
-                for (let i = 0; i < correctOrder.length; i++) {
-                  if (correctOrder[i] === userOrder[i]) correctCount++;
-                }
-                if (correctCount === 2) {
-                  pointsEarned = rule.partialCredit as number;
-                }
+              if (correctCount === 2) {
+                pointsEarned = rule.partialCredit as number;
               }
             }
           }
+        }
 
-          // Upsert score
-          const existingScore = sqlite.prepare(
-            'SELECT id FROM scores WHERE entry_id = ? AND question_id = ?'
-          ).get(entry.id, question.id) as { id: string } | undefined;
+        // Upsert score
+        const existingScore = (await client.execute({
+          sql: 'SELECT id FROM scores WHERE entry_id = ? AND question_id = ?',
+          args: [entry.id, question.id],
+        })).rows[0] as unknown as { id: string } | undefined;
 
-          if (existingScore) {
-            sqlite.prepare(
-              'UPDATE scores SET is_correct = ?, points_earned = ?, resolved_at = ? WHERE id = ?'
-            ).run(result.isCorrect ? 1 : 0, pointsEarned, new Date().toISOString(), existingScore.id);
-          } else {
-            sqlite.prepare(
-              'INSERT INTO scores (id, entry_id, question_id, is_correct, points_earned, resolved_at) VALUES (?, ?, ?, ?, ?, ?)'
-            ).run(uuid(), entry.id, question.id, result.isCorrect ? 1 : 0, pointsEarned, new Date().toISOString());
-          }
+        if (existingScore) {
+          await client.execute({
+            sql: 'UPDATE scores SET is_correct = ?, points_earned = ?, resolved_at = ? WHERE id = ?',
+            args: [result.isCorrect ? 1 : 0, pointsEarned, new Date().toISOString(), existingScore.id],
+          });
+        } else {
+          await client.execute({
+            sql: 'INSERT INTO scores (id, entry_id, question_id, is_correct, points_earned, resolved_at) VALUES (?, ?, ?, ?, ?, ?)',
+            args: [uuid(), entry.id, question.id, result.isCorrect ? 1 : 0, pointsEarned, new Date().toISOString()],
+          });
         }
       }
     }
-  });
-
-  stmt();
+  }
 
   // Also score mock drafts
-  scoreAllMockDrafts(year);
+  await scoreAllMockDrafts(year);
 }
 
-export function getLeaderboard(year: number) {
+export async function getLeaderboard(year: number) {
   // Get prop scores
-  const propResults = sqlite.prepare(`
+  const propResults = (await client.execute({
+    sql: `
     SELECT
       u.id,
       u.display_name,
@@ -399,10 +398,12 @@ export function getLeaderboard(year: number) {
     LEFT JOIN prop_questions q ON s.question_id = q.id
     WHERE e.year = ?
     GROUP BY u.id, u.display_name
-  `).all(year) as Record<string, unknown>[];
+  `,
+    args: [year],
+  })).rows as Record<string, unknown>[];
 
   // Get mock scores
-  const mockResults = getMockLeaderboard(year);
+  const mockResults = await getMockLeaderboard(year);
   const mockMap = new Map(mockResults.map(m => [m.userId, m]));
 
   // Combine: all users who have either props or mock

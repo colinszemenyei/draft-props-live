@@ -13,7 +13,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const body = await request.json();
 
-  db.update(propQuestions)
+  await db.update(propQuestions)
     .set({
       questionText: body.questionText,
       questionType: body.questionType,
@@ -27,7 +27,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     .where(eq(propQuestions.id, id))
     .run();
 
-  const question = db.select().from(propQuestions).where(eq(propQuestions.id, id)).get();
+  const question = await db.select().from(propQuestions).where(eq(propQuestions.id, id)).get();
   return NextResponse.json(question);
 }
 
@@ -37,6 +37,6 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   if (!session?.isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const { id } = await params;
-  db.delete(propQuestions).where(eq(propQuestions.id, id)).run();
+  await db.delete(propQuestions).where(eq(propQuestions.id, id)).run();
   return NextResponse.json({ ok: true });
 }

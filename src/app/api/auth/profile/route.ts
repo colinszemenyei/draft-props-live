@@ -19,12 +19,12 @@ export async function PUT(request: NextRequest) {
   }
 
   // Check if name is already taken by someone else
-  const existing = db.select().from(users).where(eq(users.displayName, newName)).get();
+  const existing = await db.select().from(users).where(eq(users.displayName, newName)).get();
   if (existing && existing.id !== session.userId) {
     return NextResponse.json({ error: 'That name is already taken' }, { status: 409 });
   }
 
-  db.update(users)
+  await db.update(users)
     .set({ displayName: newName })
     .where(eq(users.id, session.userId))
     .run();

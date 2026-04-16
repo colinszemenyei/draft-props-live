@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Password must be at least 4 characters' }, { status: 400 });
   }
 
-  const existing = db.select().from(users).where(eq(users.displayName, displayName)).get();
+  const existing = await db.select().from(users).where(eq(users.displayName, displayName)).get();
   if (existing) {
     return NextResponse.json({ error: 'Display name already taken' }, { status: 409 });
   }
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   const hash = bcryptjs.hashSync(password, 12);
   const id = uuid();
 
-  db.insert(users).values({
+  await db.insert(users).values({
     id,
     displayName,
     passwordHash: hash,

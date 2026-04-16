@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
   // Check if locked
   if (!session.isAdmin) {
-    const draftYear = db.select().from(draftYears).where(eq(draftYears.year, year)).get();
+    const draftYear = await db.select().from(draftYears).where(eq(draftYears.year, year)).get();
     if (!draftYear) return NextResponse.json({ error: 'Year not found' }, { status: 404 });
 
     const now = new Date();
@@ -25,5 +25,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json(getLeaderboard(year));
+  return NextResponse.json(await getLeaderboard(year));
 }

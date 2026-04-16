@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const year = parseInt(request.nextUrl.searchParams.get('year') || new Date().getFullYear().toString());
-  const picks = db.select().from(draftPicks)
+  const picks = await db.select().from(draftPicks)
     .where(eq(draftPicks.year, year))
     .orderBy(draftPicks.pickNumber)
     .all();
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   const college = body.college || '';
   const conference = body.conference || getConferenceForCollege(college);
 
-  db.insert(draftPicks).values({
+  await db.insert(draftPicks).values({
     id: uuid(),
     year: body.year,
     pickNumber: body.pickNumber,
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   }).run();
 
   // Re-score and broadcast
-  scoreAllEntries(body.year);
+  await scoreAllEntries(body.year);
 
   broadcastEvent('new_pick', {
     pickNumber: body.pickNumber,
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
   });
 
   const { getLeaderboard } = await import('@/lib/scoring/engine');
-  broadcastEvent('score_update', { leaderboard: getLeaderboard(body.year) });
+  broadcastEvent('score_update', { leaderboard: await getLeaderboard(body.year) });
 
   return NextResponse.json({ ok: true });
 }

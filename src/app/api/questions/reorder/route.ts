@@ -3,7 +3,6 @@ import { db } from '@/lib/db';
 import { propQuestions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/auth';
-import { sqlite } from '@/lib/db';
 import { initializeDatabase } from '@/lib/db/init';
 
 export async function PUT(request: NextRequest) {
@@ -13,15 +12,12 @@ export async function PUT(request: NextRequest) {
 
   const { order } = await request.json(); // Array of { id, sortOrder }
 
-  const update = sqlite.transaction(() => {
-    for (const item of order) {
-      db.update(propQuestions)
-        .set({ sortOrder: item.sortOrder })
-        .where(eq(propQuestions.id, item.id))
-        .run();
-    }
-  });
-  update();
+  for (const item of order) {
+    await db.update(propQuestions)
+      .set({ sortOrder: item.sortOrder })
+      .where(eq(propQuestions.id, item.id))
+      .run();
+  }
 
   return NextResponse.json({ ok: true });
 }

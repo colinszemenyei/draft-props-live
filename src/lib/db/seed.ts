@@ -2,7 +2,7 @@ import { db } from './index';
 import { propQuestions } from './schema';
 import { v4 as uuid } from 'uuid';
 
-export function seedStarterQuestions(year: number) {
+export async function seedStarterQuestions(year: number) {
   const questions = [
     // Position Props
     {
@@ -186,8 +186,9 @@ export function seedStarterQuestions(year: number) {
     },
   ];
 
-  questions.forEach((q, index) => {
-    db.insert(propQuestions).values({
+  for (let index = 0; index < questions.length; index++) {
+    const q = questions[index];
+    await db.insert(propQuestions).values({
       id: uuid(),
       year,
       sortOrder: index + 1,
@@ -198,5 +199,5 @@ export function seedStarterQuestions(year: number) {
       category: q.category,
       scoringRule: q.scoringRule as Record<string, unknown>,
     }).run();
-  });
+  }
 }

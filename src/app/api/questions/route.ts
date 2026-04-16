@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const year = parseInt(request.nextUrl.searchParams.get('year') || new Date().getFullYear().toString());
-  const questions = db.select().from(propQuestions)
+  const questions = await db.select().from(propQuestions)
     .where(eq(propQuestions.year, year))
     .orderBy(propQuestions.sortOrder)
     .all();
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const id = uuid();
 
-  db.insert(propQuestions).values({
+  await db.insert(propQuestions).values({
     id,
     year: body.year,
     sortOrder: body.sortOrder || 0,
@@ -40,6 +40,6 @@ export async function POST(request: NextRequest) {
     scoringRule: body.scoringRule,
   }).run();
 
-  const question = db.select().from(propQuestions).where(eq(propQuestions.id, id)).get();
+  const question = await db.select().from(propQuestions).where(eq(propQuestions.id, id)).get();
   return NextResponse.json(question);
 }

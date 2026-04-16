@@ -16,7 +16,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const body = await request.json();
   const conference = body.conference || getConferenceForCollege(body.college || '');
 
-  db.update(draftPicks)
+  await db.update(draftPicks)
     .set({
       team: body.team,
       playerName: body.playerName,
@@ -28,11 +28,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     .run();
 
   // Re-score
-  const pick = db.select().from(draftPicks).where(eq(draftPicks.id, id)).get();
+  const pick = await db.select().from(draftPicks).where(eq(draftPicks.id, id)).get();
   if (pick) {
-    scoreAllEntries(pick.year);
+    await scoreAllEntries(pick.year);
     const { getLeaderboard } = await import('@/lib/scoring/engine');
-    broadcastEvent('score_update', { leaderboard: getLeaderboard(pick.year) });
+    broadcastEvent('score_update', { leaderboard: await getLeaderboard(pick.year) });
   }
 
   return NextResponse.json({ ok: true });

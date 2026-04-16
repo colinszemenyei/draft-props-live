@@ -1,11 +1,12 @@
-import { sqlite } from './index';
+import { client } from './index';
 
-export function runMigrations() {
-  sqlite.exec(`
+export async function runMigrations() {
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS draft_years (
       year INTEGER PRIMARY KEY,
       lock_time TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'setup',
+      mock_scoring_config TEXT DEFAULT '{}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -90,11 +91,4 @@ export function runMigrations() {
       UNIQUE(mock_draft_id, pick_number)
     );
   `);
-
-  // Add mock_scoring_config column if not present
-  try {
-    sqlite.exec(`ALTER TABLE draft_years ADD COLUMN mock_scoring_config TEXT DEFAULT '{}'`);
-  } catch {
-    // Column already exists
-  }
 }

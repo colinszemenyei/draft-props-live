@@ -10,8 +10,8 @@ export async function POST(request: NextRequest) {
   if (!session?.isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const { year } = await request.json();
-  scoreAllEntries(year);
-  broadcastEvent('score_update', { leaderboard: getLeaderboard(year) });
+  await scoreAllEntries(year);
+  broadcastEvent('score_update', { leaderboard: await getLeaderboard(year) });
 
-  return NextResponse.json({ ok: true, leaderboard: getLeaderboard(year) });
+  return NextResponse.json({ ok: true, leaderboard: await getLeaderboard(year) });
 }

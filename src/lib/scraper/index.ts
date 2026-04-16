@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { db, sqlite } from '../db';
+import { db, client } from '../db';
 import { draftPicks, draftYears } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
@@ -179,15 +179,16 @@ export async function pollDraftPicks(year: number) {
     if (!pick.playerName || !pick.pickNumber) continue;
 
     // Check if we already have this pick
-    const existing = sqlite.prepare(
-      'SELECT id FROM draft_picks WHERE year = ? AND pick_number = ?'
-    ).get(year, pick.pickNumber);
+    const existing = (await client.execute({
+      sql: 'SELECT id FROM draft_picks WHERE year = ? AND pick_number = ?',
+      args: [year, pick.pickNumber],
+    })).rows[0];
 
     if (!existing) {
       const college = normalizeCollege(pick.college);
       const conference = getConferenceForCollege(college);
 
-      db.insert(draftPicks).values({
+      await db.insert(draftPicks).values({
         id: uuid(),
         year,
         pickNumber: pick.pickNumber,
@@ -214,11 +215,11 @@ export async function pollDraftPicks(year: number) {
 
   if (newPicksCount > 0) {
     // Re-score all entries
-    scoreAllEntries(year);
+    await scoreAllEntries(year);
 
     // Broadcast score update
     const { getLeaderboard } = await import('../scoring/engine');
-    broadcastEvent('score_update', { leaderboard: getLeaderboard(year) });
+    broadcastEvent('score_update', { leaderboard: await getLeaderboard(year) });
   }
 
   return { success: true, newPicks: newPicksCount, totalPicks: picks.length };

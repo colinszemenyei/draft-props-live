@@ -12,7 +12,7 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const years = db.select().from(draftYears).orderBy(draftYears.year).all();
+  const years = await db.select().from(draftYears).orderBy(draftYears.year).all();
   return NextResponse.json(years);
 }
 
@@ -33,7 +33,7 @@ export async function PUT(request: NextRequest) {
     updateData.mockScoringConfig = body.mockScoringConfig;
   }
 
-  db.update(draftYears)
+  await db.update(draftYears)
     .set(updateData)
     .where(eq(draftYears.year, year))
     .run();
@@ -58,10 +58,10 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const year = body.year;
 
-  const existing = db.select().from(draftYears).where(eq(draftYears.year, year)).get();
+  const existing = await db.select().from(draftYears).where(eq(draftYears.year, year)).get();
   if (existing) return NextResponse.json({ error: 'Year already exists' }, { status: 409 });
 
-  db.insert(draftYears).values({
+  await db.insert(draftYears).values({
     year,
     lockTime: body.lockTime || new Date(`${year}-04-24T19:50:00-04:00`).toISOString(),
     status: 'setup',
