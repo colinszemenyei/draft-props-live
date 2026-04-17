@@ -78,13 +78,64 @@ export function scoreMockDraft(
     actualPickToPlayer.set(pick.pickNumber, pick.playerName);
   }
 
+  // Group mock picks by normalized player name so duplicate picks of the
+  // same player share a single "best" scoring slot (no stacking).
+  const slotsByPlayer = new Map<string, Array<{ mockPickNum: number; mockedPlayer: string }>>();
+  const ungroupedSlots: Array<{ mockPickNum: number; mockedPlayer: string }> = [];
+
+  for (const [pickStr, mockedPlayer] of Object.entries(mockPicks)) {
+    const mockPickNum = Number(pickStr);
+    if (!mockedPlayer || isNaN(mockPickNum)) continue;
+    const key = normalizePlayerName(mockedPlayer);
+    if (!key) {
+      ungroupedSlots.push({ mockPickNum, mockedPlayer });
+      continue;
+    }
+    const existing = slotsByPlayer.get(key);
+    if (existing) {
+      existing.push({ mockPickNum, mockedPlayer });
+    } else {
+      slotsByPlayer.set(key, [{ mockPickNum, mockedPlayer }]);
+    }
+  }
+
+  // Determine which slot wins for each player (best = smallest diff from actual).
+  // Every other slot for that player scores 0 and is marked "duplicate".
+  const winningSlot = new Set<number>(); // mock pick numbers that are eligible to score
+
+  for (const [normalizedName, slots] of slotsByPlayer) {
+    const actualPickForPlayer = actualPlayerToPick.get(normalizedName);
+
+    if (actualPickForPlayer === undefined) {
+      // Player wasn't drafted — no slot scores, but don't mark as duplicate.
+      // Pick an arbitrary one so the other slots still aren't flagged (all miss equally).
+      for (const s of slots) winningSlot.add(s.mockPickNum);
+      continue;
+    }
+
+    // Find slot with smallest diff, ties broken by lower pick number
+    let best = slots[0];
+    let bestDiff = Math.abs(best.mockPickNum - actualPickForPlayer);
+    for (let i = 1; i < slots.length; i++) {
+      const diff = Math.abs(slots[i].mockPickNum - actualPickForPlayer);
+      if (diff < bestDiff || (diff === bestDiff && slots[i].mockPickNum < best.mockPickNum)) {
+        best = slots[i];
+        bestDiff = diff;
+      }
+    }
+    winningSlot.add(best.mockPickNum);
+  }
+
+  for (const s of ungroupedSlots) winningSlot.add(s.mockPickNum);
+
   // Score each mock pick
   for (const [pickStr, mockedPlayer] of Object.entries(mockPicks)) {
     const mockPickNum = Number(pickStr);
     if (!mockedPlayer || isNaN(mockPickNum)) continue;
 
     const actualPlayer = actualPickToPlayer.get(mockPickNum) || '';
-    const actualPickForMockedPlayer = actualPlayerToPick.get(normalizePlayerName(mockedPlayer));
+    const normalizedMocked = normalizePlayerName(mockedPlayer);
+    const actualPickForMockedPlayer = actualPlayerToPick.get(normalizedMocked);
 
     // Find which tier this mock pick falls into
     const tier = getTierForPick(mockPickNum, config.tiers);
@@ -93,7 +144,13 @@ export function scoreMockDraft(
     let points = 0;
     let matchType = 'miss';
 
-    if (actualPickForMockedPlayer !== undefined) {
+    const isEligible = winningSlot.has(mockPickNum);
+    const playerSlots = slotsByPlayer.get(normalizedMocked) || [];
+    const isDuplicate = playerSlots.length > 1 && !isEligible;
+
+    if (isDuplicate) {
+      matchType = 'duplicate';
+    } else if (isEligible && actualPickForMockedPlayer !== undefined) {
       const diff = Math.abs(mockPickNum - actualPickForMockedPlayer);
 
       if (diff === 0 && tier) {

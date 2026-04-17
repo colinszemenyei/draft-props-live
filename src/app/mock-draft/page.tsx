@@ -497,7 +497,7 @@ export default function MockDraftPage() {
               <strong>{duplicateModal.slots.map(s => `#${s}`).join(', ')}</strong>.
             </p>
             <p className="text-xs text-muted mb-5">
-              Using the same player multiple times is allowed — it can be a valid strategy to maximize your chances.
+              You can pick the same player in multiple slots, but <strong>points don&apos;t stack</strong> — only the slot closest to his actual pick will score. The other slots will be worth 0. This is a hedge to raise your floor, not your ceiling.
             </p>
             <div className="space-y-2">
               <button
