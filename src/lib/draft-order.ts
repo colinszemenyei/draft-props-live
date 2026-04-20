@@ -1,7 +1,9 @@
-// 2026 NFL Draft — Round 1 Pick Order
+// 2026 NFL Draft — Round 1 Pick Order (as of draft night)
 // Source: ESPN (espn.com/nfl/draft/rounds), April 2026
-// Notes: Jets hold picks 2 & 16, Cowboys hold picks 12 & 20,
+// Notes: Giants hold picks 5 & 10, Jets hold picks 2 & 16, Cowboys hold picks 12 & 20,
 //        Browns hold picks 6 & 24, Chiefs hold picks 9 & 29, Dolphins hold picks 11 & 30
+// Pre-draft trades (already reflected below — these do NOT count as draft-night trades):
+//   - Pick 10: Bengals → Giants
 
 export const DRAFT_ORDER_2026 = [
   { pick: 1, team: 'Las Vegas Raiders', abbr: 'LV' },
@@ -13,7 +15,7 @@ export const DRAFT_ORDER_2026 = [
   { pick: 7, team: 'Washington Commanders', abbr: 'WAS' },
   { pick: 8, team: 'New Orleans Saints', abbr: 'NO' },
   { pick: 9, team: 'Kansas City Chiefs', abbr: 'KC' },
-  { pick: 10, team: 'Cincinnati Bengals', abbr: 'CIN' },
+  { pick: 10, team: 'New York Giants', abbr: 'NYG' }, // Acquired from CIN pre-draft
   { pick: 11, team: 'Miami Dolphins', abbr: 'MIA' },
   { pick: 12, team: 'Dallas Cowboys', abbr: 'DAL' },
   { pick: 13, team: 'Los Angeles Rams', abbr: 'LAR' },
