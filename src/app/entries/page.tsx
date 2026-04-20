@@ -32,7 +32,7 @@ export default function EntriesPage() {
   useEffect(() => {
     Promise.all([
       fetch(`/api/questions?year=${year}`).then(r => r.json()),
-      fetch(`/api/entries?year=${year}`).then(r => { if (!r.ok) throw new Error('Not available yet'); return r.json(); }),
+      fetch(`/api/entries/all?year=${year}`).then(r => { if (!r.ok) throw new Error('Not available yet'); return r.json(); }),
     ]).then(([q, e]) => {
       setQuestions(q);
       setEntries(e);
