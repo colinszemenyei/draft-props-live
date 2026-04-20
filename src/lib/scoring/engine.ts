@@ -284,6 +284,23 @@ function resolveQuestion(
       return null;
     }
 
+    case 'college_in_top_n': {
+      // Yes/No: was a player from <college> taken in the top N picks?
+      const college = (rule.college as string).toLowerCase();
+      const n = rule.topN as number;
+      const topNPicks = picks.filter(p => p.pickNumber <= n);
+      const hasCollege = topNPicks.some(p => p.college.toLowerCase() === college);
+      // Can resolve early if one has already been picked
+      if (hasCollege) {
+        return { resolved: true, isCorrect: answer === 'Yes' };
+      }
+      // Need all top N picks in before concluding "No"
+      if (topNPicks.length >= n) {
+        return { resolved: true, isCorrect: answer === 'No' };
+      }
+      return null;
+    }
+
     case 'trade_in_range': {
       // Did a trade happen within pick range [start, end]?
       const start = rule.pickStart as number;

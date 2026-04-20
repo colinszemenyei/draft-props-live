@@ -21,17 +21,37 @@ interface Prospect {
 
 const DEFENSIVE_POSITIONS = ['EDGE', 'DT', 'LB', 'CB', 'S'];
 
+function normalizeName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/\bjr\.?\b/gi, '')
+    .replace(/\bsr\.?\b/gi, '')
+    .replace(/\biii\b/gi, '')
+    .replace(/\bii\b/gi, '')
+    .replace(/[.,']/g, '')
+    .trim();
+}
+
 export function inferPropsFromMock(
   questions: Question[],
   mockPicks: Record<number, string>, // pickNumber -> playerName
   prospects: Prospect[],
 ): Record<string, { value: unknown; reason: string }> {
   const inferred: Record<string, { value: unknown; reason: string }> = {};
+  // Build two lookups: exact and normalized, so a small punctuation/case mismatch
+  // between the mock player name and the prospects list doesn't silently drop the entry.
   const prospectMap = new Map(prospects.map(p => [p.name, p]));
+  const normalizedProspectMap = new Map(prospects.map(p => [normalizeName(p.name), p]));
 
   // Build derived data from mock
   const mockEntries = Object.entries(mockPicks)
-    .map(([pick, name]) => ({ pick: Number(pick), name, prospect: prospectMap.get(name) }))
+    .map(([pick, name]) => ({
+      pick: Number(pick),
+      name,
+      prospect: prospectMap.get(name) || normalizedProspectMap.get(normalizeName(name)),
+    }))
     .filter(e => e.prospect)
     .sort((a, b) => a.pick - b.pick);
 
@@ -62,6 +82,11 @@ export function inferPropsFromMock(
     mockEntries.filter(e => e.pick <= n && DEFENSIVE_POSITIONS.includes(e.prospect!.position)).length;
 
   const playerPickMap = new Map(mockEntries.map(e => [e.name, e.pick]));
+  const normalizedPlayerPickMap = new Map(mockEntries.map(e => [normalizeName(e.name), e.pick]));
+
+  // Helper: look up a mocked player's pick by name, tolerating small formatting differences
+  const findPlayerPick = (name: string): number | undefined =>
+    playerPickMap.get(name) ?? normalizedPlayerPickMap.get(normalizeName(name));
   const mockSize = Object.keys(mockPicks).length;
 
   for (const q of questions) {
@@ -171,7 +196,7 @@ export function inferPropsFromMock(
       if (ruleType === 'player_pick_number') {
         const playerName = rule.playerName as string;
         const threshold = rule.threshold as number;
-        const pickNum = playerPickMap.get(playerName);
+        const pickNum = findPlayerPick(playerName);
 
         if (pickNum !== undefined) {
           if (pickNum > threshold) {
@@ -207,7 +232,7 @@ export function inferPropsFromMock(
       // --- player_pick_range ---
       if (ruleType === 'player_pick_range') {
         const playerName = rule.playerName as string;
-        const pickNum = playerPickMap.get(playerName);
+        const pickNum = findPlayerPick(playerName);
 
         if (pickNum !== undefined) {
           const matchingRange = options.find(opt => isPickInRange(pickNum, opt));
@@ -241,18 +266,49 @@ export function inferPropsFromMock(
         }
       }
 
+      // --- state_count (Over/Under picks from a list of colleges) ---
+      if (ruleType === 'state_count' && mockSize >= 20) {
+        const colleges = (rule.colleges as string[]).map(c => c.toLowerCase());
+        const threshold = rule.threshold as number;
+        const count = mockEntries.filter(e =>
+          colleges.includes(e.prospect!.college.toLowerCase())
+        ).length;
+
+        if (count > threshold) {
+          inferred[q.id] = { value: 'Over', reason: `Your mock has ${count} picks from that state (threshold: ${threshold})` };
+        } else if (count < threshold) {
+          inferred[q.id] = { value: 'Under', reason: `Your mock has ${count} picks from that state (threshold: ${threshold})` };
+        }
+      }
+
+      // --- college_in_top_n (Yes/No: will a player from <college> be taken in top N?) ---
+      if (ruleType === 'college_in_top_n') {
+        const college = (rule.college as string).toLowerCase();
+        const n = rule.topN as number;
+        const topNFilled = mockEntries.filter(e => e.pick <= n).length;
+        const hasCollege = mockEntries.some(e =>
+          e.pick <= n && e.prospect!.college.toLowerCase() === college
+        );
+
+        if (hasCollege) {
+          inferred[q.id] = { value: 'Yes', reason: `Your mock has a ${rule.college} player in the top ${n}` };
+        } else if (topNFilled >= n) {
+          inferred[q.id] = { value: 'No', reason: `Your mock has no ${rule.college} players in the top ${n}` };
+        }
+      }
+
       // --- ordering ---
       if (ruleType === 'ordering') {
         const players = rule.players as string[];
         const withPicks = players
-          .map(name => ({ name, pick: playerPickMap.get(name) }))
+          .map(name => ({ name, pick: findPlayerPick(name) }))
           .filter(e => e.pick !== undefined) as { name: string; pick: number }[];
 
         if (withPicks.length >= 2) {
           // Sort by mock pick number, then add any unmatched players at the end
           const sorted = [...withPicks].sort((a, b) => a.pick - b.pick);
           const sortedNames = sorted.map(e => e.name);
-          const unmocked = players.filter(name => !playerPickMap.has(name));
+          const unmocked = players.filter(name => findPlayerPick(name) === undefined);
           const fullOrder = [...sortedNames, ...unmocked];
 
           inferred[q.id] = {
