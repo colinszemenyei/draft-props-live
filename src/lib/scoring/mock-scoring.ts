@@ -268,32 +268,40 @@ export async function scoreAllMockDrafts(year: number) {
 
 export async function getMockLeaderboard(year: number): Promise<Array<{
   userId: string;
+  entryId: string;
   displayName: string;
+  entryName: string;
   mockPoints: number;
   exactMatches: number;
   totalScored: number;
 }>> {
+  // One row per mock (i.e., per entry).
   const results = (await client.execute({
     sql: `
     SELECT
-      u.id,
+      u.id as user_id,
       u.display_name,
+      m.entry_id,
+      e.name as entry_name,
       COALESCE(SUM(ms.points_earned), 0) as mock_points,
       COALESCE(SUM(CASE WHEN ms.match_type = 'exact' THEN 1 ELSE 0 END), 0) as exact_matches,
       COUNT(ms.id) as total_scored
     FROM mock_drafts m
     JOIN users u ON m.user_id = u.id
+    JOIN entries e ON m.entry_id = e.id
     LEFT JOIN mock_scores ms ON ms.mock_draft_id = m.id
     WHERE m.year = ?
-    GROUP BY u.id, u.display_name
+    GROUP BY u.id, u.display_name, m.entry_id, e.name
     ORDER BY mock_points DESC, exact_matches DESC, u.display_name ASC
   `,
     args: [year],
   })).rows as Array<Record<string, unknown>>;
 
   return results.map(r => ({
-    userId: r.id as string,
+    userId: r.user_id as string,
+    entryId: r.entry_id as string,
     displayName: r.display_name as string,
+    entryName: r.entry_name as string,
     mockPoints: r.mock_points as number,
     exactMatches: r.exact_matches as number,
     totalScored: r.total_scored as number,

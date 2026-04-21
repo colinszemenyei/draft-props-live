@@ -41,6 +41,14 @@ const POSITION_COLORS: Record<string, string> = {
 
 type SortMode = 'rank' | 'alpha' | 'position';
 
+interface EntryBrief {
+  id: string;
+  name: string;
+  picks: Record<number, string>;
+  submittedAt: string | null;
+  propsSubmittedAt: string | null;
+}
+
 export default function MockDraftPage() {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [picks, setPicks] = useState<Record<number, string>>({}); // pickNumber -> playerName
@@ -50,6 +58,10 @@ export default function MockDraftPage() {
   const [submitted, setSubmitted] = useState(false);
   const [locked, setLocked] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Multi-entry state (parallel to picks page)
+  const [entriesList, setEntriesList] = useState<EntryBrief[]>([]);
+  const [currentEntryId, setCurrentEntryId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('rank');
   const [positionFilter, setPositionFilter] = useState<string>('All');
   const [searchText, setSearchText] = useState('');
@@ -70,16 +82,13 @@ export default function MockDraftPage() {
   useEffect(() => {
     Promise.all([
       fetch('/api/prospects').then(r => r.json()),
-      fetch(`/api/mock-draft?year=${year}`).then(r => r.json()),
+      fetch(`/api/entries?year=${year}&list=1`).then(r => r.json()),
       fetch('/api/admin/year-settings').then(r => r.json()),
       fetch(`/api/questions?year=${year}`).then(r => r.json()),
-      fetch(`/api/entries?year=${year}`).then(r => r.json()),
-    ]).then(([p, mock, years, q, entry]) => {
+    ]).then(async ([p, entryList, years, q]) => {
       setProspects(p);
-      if (mock?.picks) {
-        setPicks(mock.picks);
-      }
-      if (mock?.submittedAt) setSubmitted(true);
+      setQuestions(q || []);
+
       const currentYear = Array.isArray(years) ? years.find((y: { year: number }) => y.year === year) : null;
       if (currentYear) {
         const lt = new Date(currentYear.lockTime);
@@ -87,14 +96,46 @@ export default function MockDraftPage() {
           setLocked(true);
         }
       }
-      setQuestions(q || []);
-      if (entry?.picks) {
-        const parsed = typeof entry.picks === 'string' ? JSON.parse(entry.picks) : entry.picks;
-        setPropAnswers(parsed);
+
+      const list: Array<{ id: string; name: string; picks: unknown; submittedAt: string | null }> =
+        Array.isArray(entryList) ? entryList : [];
+
+      // For each entry, fetch its mock draft in parallel
+      const withMocks: EntryBrief[] = await Promise.all(
+        list.map(async e => {
+          const mock = await fetch(`/api/mock-draft?year=${year}&entryId=${e.id}`)
+            .then(r => (r.ok ? r.json() : null))
+            .catch(() => null);
+          return {
+            id: e.id,
+            name: e.name || 'Entry 1',
+            picks: (mock?.picks || {}) as Record<number, string>,
+            submittedAt: mock?.submittedAt || null,
+            propsSubmittedAt: e.submittedAt || null,
+          };
+        })
+      );
+
+      setEntriesList(withMocks);
+
+      const first = withMocks[0];
+      if (first) {
+        setCurrentEntryId(first.id);
+        setPicks(first.picks);
+        if (first.submittedAt) setSubmitted(true);
+
+        // Load prop answers for the first entry (for contradiction checks)
+        const entryData = list.find(e => e.id === first.id);
+        if (entryData?.picks) {
+          const parsed = typeof entryData.picks === 'string' ? JSON.parse(entryData.picks) : entryData.picks;
+          setPropAnswers(parsed as Record<string, unknown>);
+        }
+
+        // Auto-select the first empty pick
+        const firstEmpty = DRAFT_ORDER.find(d => !first.picks?.[d.pick]);
+        if (firstEmpty) setActivePick(firstEmpty.pick);
       }
-      // Auto-select the first empty pick
-      const firstEmpty = DRAFT_ORDER.find(d => !mock?.picks?.[d.pick]);
-      if (firstEmpty) setActivePick(firstEmpty.pick);
+
       setLoading(false);
     });
   }, []);
@@ -106,14 +147,52 @@ export default function MockDraftPage() {
       await fetch('/api/mock-draft', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, picks: newPicks, submitted: submit }),
+        body: JSON.stringify({ year, entryId: currentEntryId, picks: newPicks, submitted: submit }),
       });
       setSaved(true);
       if (submit) setSubmitted(true);
+      // Keep entriesList in sync so switching works without a fresh fetch
+      setEntriesList(prev => prev.map(e =>
+        e.id === currentEntryId
+          ? { ...e, picks: newPicks, submittedAt: submit ? new Date().toISOString() : e.submittedAt }
+          : e
+      ));
     } finally {
       setSaving(false);
     }
-  }, [locked]);
+  }, [locked, currentEntryId]);
+
+  // Switch to another entry's mock
+  const switchEntry = (entryId: string) => {
+    if (entryId === currentEntryId) return;
+    if (saveTimeout.current) {
+      clearTimeout(saveTimeout.current);
+      saveTimeout.current = null;
+    }
+    const target = entriesList.find(e => e.id === entryId);
+    if (!target) return;
+    setCurrentEntryId(entryId);
+    setPicks(target.picks);
+    setSubmitted(!!target.submittedAt);
+    setSaved(true);
+    setDismissed(new Set());
+    const firstEmpty = DRAFT_ORDER.find(d => !target.picks?.[d.pick]);
+    setActivePick(firstEmpty ? firstEmpty.pick : null);
+
+    // Reload prop answers for this entry so contradiction checks reflect it
+    fetch(`/api/entries?year=${year}&entryId=${entryId}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(entryData => {
+        if (entryData?.picks) {
+          const parsed = typeof entryData.picks === 'string'
+            ? JSON.parse(entryData.picks)
+            : entryData.picks;
+          setPropAnswers(parsed);
+        } else {
+          setPropAnswers({});
+        }
+      });
+  };
 
   const doAssignPlayer = (pickNum: number, playerName: string, newPicks: Record<number, string>) => {
     setPicks(newPicks);
@@ -282,6 +361,36 @@ export default function MockDraftPage() {
             </div>
           </div>
         </div>
+
+        {/* Entry tabs — each entry has its own mock. */}
+        {entriesList.length > 0 && (
+          <div className="mb-4 bg-card border border-card-border rounded-xl p-3">
+            <p className="text-xs text-muted font-semibold uppercase tracking-wide mb-2">
+              Mock for Entry
+            </p>
+            <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+              {entriesList.map(e => (
+                <button
+                  key={e.id}
+                  onClick={() => switchEntry(e.id)}
+                  className={`shrink-0 text-sm px-3 py-1.5 rounded-lg whitespace-nowrap border transition ${
+                    e.id === currentEntryId
+                      ? 'bg-primary text-white border-primary'
+                      : 'bg-background text-foreground border-card-border hover:bg-card'
+                  }`}
+                >
+                  {e.name}
+                  {e.submittedAt && <span className="ml-1.5 text-xs">✓</span>}
+                </button>
+              ))}
+            </div>
+            {entriesList.length > 1 && (
+              <p className="text-xs text-muted mt-2">
+                Each entry scores independently. Manage entries from the Props page.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Contradiction warning banner */}
         {allContradictions.length > 0 && (

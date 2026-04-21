@@ -515,10 +515,10 @@ export async function getLeaderboard(year: number) {
     entryCountByUser.set(uid, (entryCountByUser.get(uid) || 0) + 1);
   }
 
-  // Get mock scores (one per user, labelled with user display name only)
+  // Get mock scores keyed by entry id (one per entry now)
   const mockResults = await getMockLeaderboard(year);
-  const mockMap = new Map(mockResults.map(m => [m.userId, m]));
-  const mockAttached = new Set<string>(); // mock userIds we've already paired
+  const mockByEntry = new Map(mockResults.map(m => [m.entryId, m]));
+  const mockAttachedEntries = new Set<string>();
 
   // Build rows, one per entry. The user's mock-draft score is attached to
   // their FIRST entry (alphabetical by entry name) so it's only counted
@@ -553,14 +553,14 @@ export async function getLeaderboard(year: number) {
     const multiple = (entryCountByUser.get(userId) || 0) > 1;
     const display = multiple ? `${baseDisplay} — ${entryName}` : baseDisplay;
 
-    // Attach mock score only to the first entry row for this user
-    const mock = mockMap.get(userId);
+    // Attach mock score for THIS entry (not user) — each entry has its own mock
+    const mock = mockByEntry.get(entryId);
     let mockPts = 0;
     let exactMocks = 0;
-    if (mock && !mockAttached.has(userId)) {
+    if (mock) {
       mockPts = mock.mockPoints;
       exactMocks = mock.exactMatches;
-      mockAttached.add(userId);
+      mockAttachedEntries.add(entryId);
     }
 
     const propPts = r.prop_points as number;
@@ -579,14 +579,17 @@ export async function getLeaderboard(year: number) {
     });
   }
 
-  // Add users who have a mock but no submitted prop entry
+  // Add rows for mocks whose entry wasn't submitted as a prop entry
+  // (i.e. the user started a mock but never submitted props for it)
   for (const mock of mockResults) {
-    if (!mockAttached.has(mock.userId)) {
+    if (!mockAttachedEntries.has(mock.entryId)) {
+      const userHasMultiple = mockResults.filter(m => m.userId === mock.userId).length > 1;
+      const displayName = userHasMultiple ? `${mock.displayName} — ${mock.entryName}` : mock.displayName;
       rows.push({
-        rowKey: `mock-only-${mock.userId}`,
+        rowKey: `mock-only-${mock.entryId}`,
         userId: mock.userId,
-        entryId: null,
-        displayName: mock.displayName,
+        entryId: mock.entryId,
+        displayName,
         propPoints: 0,
         mockPoints: mock.mockPoints,
         totalPoints: mock.mockPoints,

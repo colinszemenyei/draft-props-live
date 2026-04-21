@@ -77,10 +77,11 @@ export async function runMigrations() {
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id),
       year INTEGER NOT NULL REFERENCES draft_years(year),
+      entry_id TEXT NOT NULL REFERENCES entries(id),
       picks TEXT NOT NULL DEFAULT '{}',
       submitted_at TEXT,
       updated_at TEXT NOT NULL,
-      UNIQUE(user_id, year)
+      UNIQUE(entry_id)
     );
 
     CREATE TABLE IF NOT EXISTS mock_scores (
