@@ -73,7 +73,7 @@ export default function MockDraftPage() {
       fetch(`/api/mock-draft?year=${year}`).then(r => r.json()),
       fetch('/api/admin/year-settings').then(r => r.json()),
       fetch(`/api/questions?year=${year}`).then(r => r.json()),
-      fetch(`/api/picks?year=${year}`).then(r => r.json()),
+      fetch(`/api/entries?year=${year}`).then(r => r.json()),
     ]).then(([p, mock, years, q, entry]) => {
       setProspects(p);
       if (mock?.picks) {

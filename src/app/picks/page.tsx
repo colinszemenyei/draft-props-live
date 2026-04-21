@@ -52,7 +52,7 @@ export default function PicksPage() {
   useEffect(() => {
     Promise.all([
       fetch(`/api/questions?year=${year}`).then(r => r.json()),
-      fetch(`/api/picks?year=${year}`).then(r => r.json()),
+      fetch(`/api/entries?year=${year}`).then(r => r.json()),
       fetch('/api/admin/year-settings').then(r => r.json()),
       fetch('/api/prospects').then(r => r.json()),
       fetch(`/api/mock-draft?year=${year}`).then(r => r.json()),
@@ -102,7 +102,7 @@ export default function PicksPage() {
         if (applied.size > 0) {
           // Schedule a save
           setTimeout(() => {
-            fetch('/api/picks', {
+            fetch('/api/entries', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ year, picks: merged, submitted: false }),
@@ -143,7 +143,7 @@ export default function PicksPage() {
     if (locked) return;
     setSaving(true);
     try {
-      await fetch('/api/picks', {
+      await fetch('/api/entries', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ year, picks: newPicks, submitted: submit }),
