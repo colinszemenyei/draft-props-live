@@ -25,27 +25,28 @@ export async function PUT(request: NextRequest) {
   const year = body.year;
 
   const updateData: Record<string, unknown> = {
-    lockTime: body.lockTime,
-    status: body.status,
     updatedAt: new Date().toISOString(),
   };
-  if (body.mockScoringConfig !== undefined) {
-    updateData.mockScoringConfig = body.mockScoringConfig;
-  }
+  // Each field is optional so a partial PUT (e.g. just financeConfig) works
+  if (body.lockTime !== undefined) updateData.lockTime = body.lockTime;
+  if (body.status !== undefined) updateData.status = body.status;
+  if (body.mockScoringConfig !== undefined) updateData.mockScoringConfig = body.mockScoringConfig;
+  if (body.financeConfig !== undefined) updateData.financeConfig = body.financeConfig;
 
   await db.update(draftYears)
     .set(updateData)
     .where(eq(draftYears.year, year))
     .run();
 
-  // Start/stop polling based on status
-  if (body.status === 'live') {
-    startPolling(year);
-  } else {
-    stopPolling();
+  // Start/stop polling based on status — only react if status was touched
+  if (body.status !== undefined) {
+    if (body.status === 'live') {
+      startPolling(year);
+    } else {
+      stopPolling();
+    }
+    broadcastEvent('status_change', { year, status: body.status });
   }
-
-  broadcastEvent('status_change', { year, status: body.status });
 
   return NextResponse.json({ ok: true });
 }

@@ -6,6 +6,7 @@ export async function runMigrations() {
       year INTEGER PRIMARY KEY,
       lock_time TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'setup',
+      finance_config TEXT DEFAULT '{}',
       mock_scoring_config TEXT DEFAULT '{}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL

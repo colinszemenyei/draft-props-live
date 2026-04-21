@@ -4,6 +4,7 @@ import { useAuth, useSSE } from '@/lib/hooks';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import FinanceInfoPopup from './FinanceInfoPopup';
 
 const NAV_ITEMS = [
   { href: '/picks', label: 'Props', icon: '📋' },
@@ -17,6 +18,7 @@ const ADMIN_NAV = [
   { href: '/admin/questions', label: 'Questions' },
   { href: '/admin/draft', label: 'Draft Mgr' },
   { href: '/admin/users', label: 'Users' },
+  { href: '/admin/finances', label: 'Finances' },
   { href: '/admin/settings', label: 'Settings' },
 ];
 
@@ -223,6 +225,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex flex-col pb-16 md:pb-0">
+      <FinanceInfoPopup userId={user.userId} />
       {/* Header */}
       <header className="sticky top-0 z-50 bg-primary text-white shadow-md">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">

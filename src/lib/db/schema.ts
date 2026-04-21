@@ -4,6 +4,11 @@ export const draftYears = sqliteTable('draft_years', {
   year: integer('year').primaryKey(),
   lockTime: text('lock_time').notNull(), // ISO datetime
   status: text('status', { enum: ['setup', 'open', 'locked', 'live', 'complete'] }).notNull().default('setup'),
+  financeConfig: text('finance_config', { mode: 'json' }).$type<FinanceConfig>().default({
+    entryFee: '',
+    payoutDescription: '',
+    paymentInstructions: '',
+  } as FinanceConfig),
   mockScoringConfig: text('mock_scoring_config', { mode: 'json' }).$type<MockScoringConfig>().default({
     tiers: [
       { label: 'Picks 1-5', pickStart: 1, pickEnd: 5, exactPick: 3, within1: 1, within2: 0 },
@@ -16,6 +21,12 @@ export const draftYears = sqliteTable('draft_years', {
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+export interface FinanceConfig {
+  entryFee: string;              // free-form text, e.g. "$20"
+  payoutDescription: string;     // free-form, e.g. "75/25 winner & 2nd if 10+ entries…"
+  paymentInstructions: string;   // e.g. "Venmo @zach-lastname" or Zelle info
+}
 
 export interface MockScoringTier {
   label: string;        // e.g. "Top 5 Picks"
