@@ -49,6 +49,9 @@ export default function PicksPage() {
     inferredValue: unknown;
   } | null>(null);
 
+  // Shown when user clicks Submit but some questions are unanswered
+  const [missingModal, setMissingModal] = useState<Question[] | null>(null);
+
   useEffect(() => {
     Promise.all([
       fetch(`/api/questions?year=${year}`).then(r => r.json()),
@@ -293,6 +296,16 @@ export default function PicksPage() {
           <div className="mt-6 mb-8 space-y-3">
             <button
               onClick={() => {
+                const unanswered = questions.filter(q => {
+                  const v = picks[q.id];
+                  if (v === undefined || v === null || v === '') return true;
+                  if (Array.isArray(v) && v.length === 0) return true;
+                  return false;
+                });
+                if (unanswered.length > 0) {
+                  setMissingModal(unanswered);
+                  return;
+                }
                 if (confirm('Submit your entry? You can still edit until lock time.')) {
                   savePicks(picks, true);
                 }
@@ -352,6 +365,65 @@ export default function PicksPage() {
           </div>
         </div>
       )}
+
+      {/* Missing answers modal */}
+      {missingModal && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setMissingModal(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 animate-slide-in max-h-[85vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-2xl">⚠️</span>
+              <h3 className="text-lg font-bold text-amber-800">
+                {missingModal.length} question{missingModal.length === 1 ? '' : 's'} unanswered
+              </h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              You&apos;ll score 0 on anything you leave blank. Review the list, then submit.
+            </p>
+            <div className="flex-1 overflow-y-auto bg-amber-50 border border-amber-200 rounded-lg p-3 mb-5 space-y-2">
+              {missingModal.map((q, idx) => (
+                <button
+                  key={q.id}
+                  onClick={() => {
+                    setMissingModal(null);
+                    const el = document.getElementById(`question-${q.id}`);
+                    if (el) {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      el.classList.add('ring-2', 'ring-amber-400');
+                      setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400'), 2000);
+                    }
+                  }}
+                  className="block w-full text-left text-xs text-amber-900 hover:text-amber-700 hover:underline"
+                >
+                  {idx + 1}. {q.questionText}
+                </button>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <button
+                onClick={() => setMissingModal(null)}
+                className="w-full py-2.5 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary-light transition"
+              >
+                Go Back & Fill Them In
+              </button>
+              <button
+                onClick={() => {
+                  setMissingModal(null);
+                  savePicks(picks, true);
+                }}
+                className="w-full py-2.5 bg-white border border-card-border text-foreground rounded-lg text-sm font-semibold hover:bg-gray-50 transition"
+              >
+                Submit Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }
@@ -376,9 +448,12 @@ function QuestionCard({
   isAutoFilled?: boolean;
 }) {
   return (
-    <div className={`bg-card border rounded-xl p-4 shadow-sm animate-slide-in ${
-      isAutoFilled ? 'border-blue-200 bg-blue-50/30' : 'border-card-border'
-    }`}>
+    <div
+      id={`question-${question.id}`}
+      className={`bg-card border rounded-xl p-4 shadow-sm animate-slide-in transition-all ${
+        isAutoFilled ? 'border-blue-200 bg-blue-50/30' : 'border-card-border'
+      }`}
+    >
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
