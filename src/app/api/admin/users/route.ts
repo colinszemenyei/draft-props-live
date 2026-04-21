@@ -18,6 +18,7 @@ export async function GET() {
         u.id,
         u.display_name,
         u.is_admin,
+        u.contact,
         u.created_at,
         (SELECT COUNT(*) FROM entries e WHERE e.user_id = u.id) AS entry_count,
         (SELECT COUNT(*) FROM entries e WHERE e.user_id = u.id AND e.submitted_at IS NOT NULL) AS submitted_count,
@@ -30,6 +31,7 @@ export async function GET() {
     id: string;
     display_name: string;
     is_admin: number;
+    contact: string | null;
     created_at: string;
     entry_count: number;
     submitted_count: number;
@@ -42,6 +44,7 @@ export async function GET() {
       id: r.id,
       displayName: r.display_name,
       isAdmin: !!r.is_admin,
+      contact: r.contact,
       createdAt: r.created_at,
       entryCount: r.entry_count,
       submittedCount: r.submitted_count,

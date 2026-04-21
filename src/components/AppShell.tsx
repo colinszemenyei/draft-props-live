@@ -21,15 +21,18 @@ const ADMIN_NAV = [
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, loading, login, register, logout, updateDisplayName } = useAuth();
+  const { user, loading, login, register, logout, updateDisplayName, updateContact } = useAuth();
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
+  const [contact, setContact] = useState('');
   const [error, setError] = useState('');
   const [draftStatus, setDraftStatus] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [nameError, setNameError] = useState('');
+  const [contactValue, setContactValue] = useState('');
+  const [contactError, setContactError] = useState('');
   const pathname = usePathname();
 
   const sseEvent = useSSE('/api/sse/draft');
@@ -96,7 +99,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   if (authMode === 'login') {
                     await login(displayName, password);
                   } else {
-                    await register(displayName, password);
+                    await register(displayName, password, contact);
                   }
                 } catch (err) {
                   setError(err instanceof Error ? err.message : 'Something went wrong');
@@ -114,7 +117,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   required
                 />
               </div>
-              <div className="mb-6">
+              <div className={authMode === 'register' ? 'mb-4' : 'mb-6'}>
                 <label className="block text-sm text-muted mb-1">Password</label>
                 <input
                   type="password"
@@ -125,6 +128,23 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   required
                 />
               </div>
+              {authMode === 'register' && (
+                <div className="mb-6">
+                  <label className="block text-sm text-muted mb-1">Email or Phone</label>
+                  <input
+                    type="text"
+                    value={contact}
+                    onChange={(e) => setContact(e.target.value)}
+                    className="w-full bg-white border border-card-border rounded-lg px-3 py-2.5 text-foreground focus:outline-none focus:border-primary transition"
+                    placeholder="you@example.com or 555-555-5555"
+                    required
+                    maxLength={120}
+                  />
+                  <p className="text-xs text-muted mt-1">
+                    So the commissioner can reach you for payment. Not shown publicly.
+                  </p>
+                </div>
+              )}
               <button
                 type="submit"
                 className="w-full bg-accent hover:bg-accent-light text-white font-bold py-2.5 rounded-lg transition"
@@ -133,6 +153,69 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             </form>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Force existing users to fill in contact info before using the app.
+  // Blocks the whole UI with a modal that has no dismiss button.
+  if (!user.contact) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="w-full max-w-sm bg-card border border-card-border rounded-xl p-6 shadow-sm">
+          <h1 className="text-xl font-bold mb-2">One quick thing</h1>
+          <p className="text-sm text-muted mb-4">
+            We need a way for the commissioner to reach you for payment. Please
+            add an email or phone number to continue.
+          </p>
+          {contactError && (
+            <div className="bg-danger/10 border border-danger/30 text-danger text-sm rounded-lg p-3 mb-3">
+              {contactError}
+            </div>
+          )}
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setContactError('');
+              const v = contactValue.trim();
+              if (!v) {
+                setContactError('Please enter an email or phone number');
+                return;
+              }
+              try {
+                await updateContact(v);
+              } catch (err) {
+                setContactError(err instanceof Error ? err.message : 'Failed to save');
+              }
+            }}
+          >
+            <input
+              type="text"
+              value={contactValue}
+              onChange={(e) => setContactValue(e.target.value)}
+              className="w-full bg-white border border-card-border rounded-lg px-3 py-2.5 text-foreground focus:outline-none focus:border-primary transition mb-2"
+              placeholder="you@example.com or 555-555-5555"
+              maxLength={120}
+              autoFocus
+            />
+            <p className="text-xs text-muted mb-4">
+              Visible to the commissioner only. Not shown to other players.
+            </p>
+            <button
+              type="submit"
+              className="w-full bg-accent hover:bg-accent-light text-white font-bold py-2.5 rounded-lg transition"
+            >
+              Save & Continue
+            </button>
+            <button
+              type="button"
+              onClick={logout}
+              className="w-full mt-2 text-xs text-muted hover:text-foreground"
+            >
+              Sign out instead
+            </button>
+          </form>
         </div>
       </div>
     );

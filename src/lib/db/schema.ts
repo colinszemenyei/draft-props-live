@@ -40,6 +40,10 @@ export const users = sqliteTable('users', {
   displayName: text('display_name').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
+  // Email or phone number — shown to the commissioner so he can track people
+  // down for payments. Nullable for legacy rows created before this field
+  // existed; new signups are required to fill it.
+  contact: text('contact'),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
 });
 

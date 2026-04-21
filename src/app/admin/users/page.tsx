@@ -7,6 +7,7 @@ interface UserRow {
   id: string;
   displayName: string;
   isAdmin: boolean;
+  contact: string | null;
   createdAt: string;
   entryCount: number;
   submittedCount: number;
@@ -102,6 +103,13 @@ export default function AdminUsersPage() {
                   <span>Props: {u.submittedCount}/{u.entryCount} submitted</span>
                   <span>Mocks: {u.mockSubmittedCount}/{u.mockCount} submitted</span>
                   <span>Joined: {new Date(u.createdAt).toLocaleDateString()}</span>
+                </div>
+                <div className="text-xs mt-1">
+                  {u.contact ? (
+                    <span className="text-foreground font-mono">{u.contact}</span>
+                  ) : (
+                    <span className="text-amber-600">No contact info on file</span>
+                  )}
                 </div>
               </div>
               <div className="flex gap-1">

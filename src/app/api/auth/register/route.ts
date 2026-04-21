@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Too many attempts. Try again in a minute.' }, { status: 429 });
   }
 
-  const { displayName, password } = await request.json();
+  const { displayName, password, contact } = await request.json();
 
   if (!displayName || !password) {
     return NextResponse.json({ error: 'Display name and password are required' }, { status: 400 });
@@ -27,6 +27,16 @@ export async function POST(request: NextRequest) {
 
   if (password.length < 4) {
     return NextResponse.json({ error: 'Password must be at least 4 characters' }, { status: 400 });
+  }
+
+  const contactTrimmed = typeof contact === 'string' ? contact.trim() : '';
+  if (!contactTrimmed) {
+    return NextResponse.json({
+      error: 'Contact info (email or phone) is required so the commissioner can reach you for payment'
+    }, { status: 400 });
+  }
+  if (contactTrimmed.length > 120) {
+    return NextResponse.json({ error: 'Contact info is too long' }, { status: 400 });
   }
 
   const existing = await db.select().from(users).where(eq(users.displayName, displayName)).get();
@@ -42,6 +52,7 @@ export async function POST(request: NextRequest) {
     displayName,
     passwordHash: hash,
     isAdmin: false,
+    contact: contactTrimmed,
   }).run();
 
   await createSession(id);

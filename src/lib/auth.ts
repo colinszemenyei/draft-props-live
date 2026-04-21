@@ -44,6 +44,7 @@ export async function getSession() {
     userId: user.id,
     displayName: user.displayName,
     isAdmin: user.isAdmin,
+    contact: user.contact || null,
   };
 }
 

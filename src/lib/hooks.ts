@@ -6,6 +6,7 @@ interface User {
   userId: string;
   displayName: string;
   isAdmin: boolean;
+  contact: string | null;
 }
 
 export function useAuth() {
@@ -42,15 +43,28 @@ export function useAuth() {
     await checkAuth();
   };
 
-  const register = async (displayName: string, password: string) => {
+  const register = async (displayName: string, password: string, contact: string) => {
     const res = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ displayName, password }),
+      body: JSON.stringify({ displayName, password, contact }),
     });
     if (!res.ok) {
       const data = await res.json();
       throw new Error(data.error || 'Registration failed');
+    }
+    await checkAuth();
+  };
+
+  const updateContact = async (contact: string) => {
+    const res = await fetch('/api/auth/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contact }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to update contact');
     }
     await checkAuth();
   };
@@ -73,7 +87,7 @@ export function useAuth() {
     await checkAuth();
   };
 
-  return { user, loading, login, register, logout, updateDisplayName };
+  return { user, loading, login, register, logout, updateDisplayName, updateContact };
 }
 
 export function useSSE(url: string) {

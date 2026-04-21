@@ -16,6 +16,7 @@ export async function runMigrations() {
       display_name TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       is_admin INTEGER NOT NULL DEFAULT 0,
+      contact TEXT,
       created_at TEXT NOT NULL
     );
 
