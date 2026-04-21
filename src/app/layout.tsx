@@ -47,19 +47,34 @@ export default function RootLayout({
         {children}
         <Script id="sw-register" strategy="afterInteractive">{`
           if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').then((reg) => {
-              // When a new SW takes over, reload once so the user is on fresh code.
-              let refreshing = false;
-              navigator.serviceWorker.addEventListener('controllerchange', () => {
-                if (refreshing) return;
-                refreshing = true;
-                window.location.reload();
+            // Recovery mechanism: ?reset=sw in the URL unregisters every
+            // service worker and clears every cache, then reloads. Give
+            // this to any user who's stuck on a poisoned SW.
+            if (location.search.includes('reset=sw')) {
+              navigator.serviceWorker.getRegistrations().then((regs) => {
+                return Promise.all(regs.map((r) => r.unregister()));
+              }).then(() => {
+                if ('caches' in window) {
+                  return caches.keys().then((keys) =>
+                    Promise.all(keys.map((k) => caches.delete(k)))
+                  );
+                }
+              }).finally(() => {
+                location.replace(location.pathname);
               });
-              // Check for updates whenever the page becomes visible
-              document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible') reg.update();
-              });
-            }).catch(() => {});
+            } else {
+              navigator.serviceWorker.register('/sw.js').then((reg) => {
+                let refreshing = false;
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                  if (refreshing) return;
+                  refreshing = true;
+                  window.location.reload();
+                });
+                document.addEventListener('visibilitychange', () => {
+                  if (document.visibilityState === 'visible') reg.update();
+                });
+              }).catch(() => {});
+            }
           }
         `}</Script>
       </body>
