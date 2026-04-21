@@ -200,11 +200,16 @@ export default function MockDraftPage() {
 
     // Auto-advance to next empty pick
     const nextEmpty = DRAFT_ORDER.find(d => d.pick > pickNum && !newPicks[d.pick]);
-    if (nextEmpty) {
-      setActivePick(nextEmpty.pick);
-    } else {
-      const anyEmpty = DRAFT_ORDER.find(d => !newPicks[d.pick]);
-      setActivePick(anyEmpty?.pick || null);
+    const advanceTo = nextEmpty || DRAFT_ORDER.find(d => !newPicks[d.pick]);
+    setActivePick(advanceTo?.pick || null);
+
+    // On mobile, scroll back up so the user can see the updated board
+    // and which slot is now active
+    if (advanceTo && typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setTimeout(() => {
+        const slotEl = document.getElementById(`mock-slot-${advanceTo.pick}`);
+        if (slotEl) slotEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 50);
     }
 
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
@@ -428,7 +433,23 @@ export default function MockDraftPage() {
               return (
                 <button
                   key={slot.pick}
-                  onClick={() => !locked && setActivePick(slot.pick)}
+                  id={`mock-slot-${slot.pick}`}
+                  onClick={() => {
+                    if (locked) return;
+                    setActivePick(slot.pick);
+                    // On mobile (< lg breakpoint where layout stacks), the player
+                    // picker is below the draft board. Scroll to it so the user
+                    // doesn't have to hunt for it after tapping.
+                    if (window.innerWidth < 1024 && playerListRef.current) {
+                      // Wait a tick so state updates apply before scrolling
+                      setTimeout(() => {
+                        playerListRef.current?.scrollIntoView({
+                          behavior: 'smooth',
+                          block: 'start',
+                        });
+                      }, 10);
+                    }
+                  }}
                   className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg border transition ${
                     isActive
                       ? 'border-primary bg-primary/5 ring-2 ring-primary/20'

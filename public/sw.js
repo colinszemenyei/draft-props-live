@@ -1,72 +1,27 @@
-const CACHE_NAME = 'draft-props-v1';
-const STATIC_ASSETS = [
-  '/manifest.json',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-];
+// Minimal service worker.
+//
+// Prior versions cached HTML pages and Next.js chunks, which caused a
+// cache-poisoning problem: after a deploy, the SW could hand back an
+// HTML document that referenced JS chunk URLs from the previous build,
+// producing a "This page couldn't load" error on mobile. This version
+// does nothing during fetch — it exists only so the app is installable
+// as a PWA and so icons/manifest are served. The browser's own HTTP
+// caching handles everything else correctly, with Next.js' content
+// hashes driving invalidation.
 
-// Install — pre-cache static assets
+const CACHE_NAME = 'draft-props-v3';
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
-  );
-  self.skipWaiting();
+  event.waitUntil(self.skipWaiting());
 });
 
-// Activate — clean old caches
 self.addEventListener('activate', (event) => {
+  // Nuke ALL previously-created caches so no stale HTML / chunks survive.
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
-});
-
-// Fetch — network-first for API/pages, cache-first for static assets
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-
-  // Skip SSE connections and non-GET requests
-  if (event.request.method !== 'GET') return;
-  if (url.pathname.startsWith('/api/sse')) return;
-
-  // API requests — network only (always fresh data)
-  if (url.pathname.startsWith('/api/')) return;
-
-  // Static assets (icons, fonts, images) — cache first
-  if (
-    url.pathname.startsWith('/icons/') ||
-    url.pathname.startsWith('/_next/static/') ||
-    url.pathname.endsWith('.png') ||
-    url.pathname.endsWith('.svg') ||
-    url.pathname.endsWith('.woff2')
-  ) {
-    event.respondWith(
-      caches.match(event.request).then((cached) => {
-        if (cached) return cached;
-        return fetch(event.request).then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        });
-      })
-    );
-    return;
-  }
-
-  // Pages — network first, cache fallback
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return response;
-      })
-      .catch(() => caches.match(event.request))
+    caches.keys()
+      .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
+
+// Intentionally no 'fetch' handler — falls through to the network.

@@ -289,12 +289,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {/* Admin nav */}
         {user.isAdmin && pathname.startsWith('/admin') && (
           <div className="bg-primary-light border-t border-white/10">
-            <div className="max-w-5xl mx-auto px-4 flex gap-1">
+            <div className="max-w-5xl mx-auto px-4 flex gap-1 overflow-x-auto whitespace-nowrap">
               {ADMIN_NAV.map(item => (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`px-3 py-2 text-xs font-medium transition ${
+                  className={`shrink-0 px-3 py-2 text-xs font-medium transition ${
                     pathname === item.href ? 'text-white border-b-2 border-white' : 'text-white/60 hover:text-white'
                   }`}
                 >

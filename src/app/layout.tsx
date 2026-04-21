@@ -47,7 +47,19 @@ export default function RootLayout({
         {children}
         <Script id="sw-register" strategy="afterInteractive">{`
           if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').catch(() => {});
+            navigator.serviceWorker.register('/sw.js').then((reg) => {
+              // When a new SW takes over, reload once so the user is on fresh code.
+              let refreshing = false;
+              navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (refreshing) return;
+                refreshing = true;
+                window.location.reload();
+              });
+              // Check for updates whenever the page becomes visible
+              document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') reg.update();
+              });
+            }).catch(() => {});
           }
         `}</Script>
       </body>
