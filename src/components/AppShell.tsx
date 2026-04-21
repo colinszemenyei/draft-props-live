@@ -16,6 +16,7 @@ const NAV_ITEMS = [
 const ADMIN_NAV = [
   { href: '/admin/questions', label: 'Questions' },
   { href: '/admin/draft', label: 'Draft Mgr' },
+  { href: '/admin/users', label: 'Users' },
   { href: '/admin/settings', label: 'Settings' },
 ];
 
