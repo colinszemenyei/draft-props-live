@@ -7,6 +7,7 @@ import { useSSE } from '@/lib/hooks';
 interface LeaderboardEntry {
   rank: number;
   userId: string;
+  entryId: string | null;
   displayName: string;
   totalPoints: number;
   propPoints: number;
@@ -62,7 +63,7 @@ export default function LeaderboardPage() {
     try {
       const [lb, ent, q] = await Promise.all([
         fetch(`/api/leaderboard?year=${year}`).then(r => { if (!r.ok) throw new Error('Not available'); return r.json(); }),
-        fetch(`/api/entries?year=${year}`).then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch(`/api/picks?year=${year}`).then(r => r.ok ? r.json() : []).catch(() => []),
         fetch(`/api/questions?year=${year}`).then(r => r.json()),
       ]);
       setLeaderboard(lb);
@@ -97,13 +98,17 @@ export default function LeaderboardPage() {
 
         <div className="space-y-2">
           {leaderboard.map((entry) => {
-            const userEntry = entries.find(e => e.userId === entry.userId);
-            const isExpanded = expandedUser === entry.userId;
+            // rowKey is unique per leaderboard row (entryId if present, else userId)
+            const rowKey = entry.entryId || `mock-only-${entry.userId}`;
+            const userEntry = entry.entryId
+              ? entries.find(e => e.id === entry.entryId)
+              : entries.find(e => e.userId === entry.userId);
+            const isExpanded = expandedUser === rowKey;
 
             return (
-              <div key={entry.userId} className="animate-slide-in">
+              <div key={rowKey} className="animate-slide-in">
                 <button
-                  onClick={() => setExpandedUser(isExpanded ? null : entry.userId)}
+                  onClick={() => setExpandedUser(isExpanded ? null : rowKey)}
                   className="w-full bg-card border border-card-border rounded-xl p-4 flex items-center gap-4 hover:border-primary/30 transition text-left"
                 >
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${

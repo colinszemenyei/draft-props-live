@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
       id: entry.id,
       userId: entry.user_id,
       displayName: entry.display_name,
+      entryName: entry.name,
       year: entry.year,
       picks: typeof entry.picks === 'string' ? JSON.parse(entry.picks as string) : entry.picks,
       submittedAt: entry.submitted_at,

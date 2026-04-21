@@ -406,7 +406,9 @@ function parseRange(rangeStr: string): [number, number] | null {
 export async function scoreAllEntries(year: number) {
   const allPicks = await db.select().from(draftPicks).where(eq(draftPicks.year, year)).all();
   const allQuestions = await db.select().from(propQuestions).where(eq(propQuestions.year, year)).all();
-  const allEntries = await db.select().from(entries).where(eq(entries.year, year)).all();
+  // Only score SUBMITTED entries — unsaved drafts aren't ranked on the board
+  const allEntries = (await db.select().from(entries).where(eq(entries.year, year)).all())
+    .filter(e => e.submittedAt);
 
   const pickData: DraftPick[] = allPicks.map(p => ({
     pickNumber: p.pickNumber,
@@ -483,11 +485,14 @@ export async function scoreAllEntries(year: number) {
 }
 
 export async function getLeaderboard(year: number) {
-  // Get prop scores
+  // Get prop scores per ENTRY (multi-entry users appear as multiple rows).
+  // Only count submitted entries.
   const propResults = (await client.execute({
     sql: `
     SELECT
-      u.id,
+      e.id as entry_id,
+      e.user_id,
+      e.name as entry_name,
       u.display_name,
       COALESCE(SUM(s.points_earned), 0) as prop_points,
       COALESCE(SUM(CASE WHEN s.is_correct = 1 THEN 1 ELSE 0 END), 0) as correct_picks,
@@ -497,19 +502,31 @@ export async function getLeaderboard(year: number) {
     JOIN users u ON e.user_id = u.id
     LEFT JOIN scores s ON s.entry_id = e.id
     LEFT JOIN prop_questions q ON s.question_id = q.id
-    WHERE e.year = ?
-    GROUP BY u.id, u.display_name
+    WHERE e.year = ? AND e.submitted_at IS NOT NULL
+    GROUP BY e.id, e.user_id, e.name, u.display_name
   `,
     args: [year],
   })).rows as Record<string, unknown>[];
 
-  // Get mock scores
+  // Count entries per user to decide whether to disambiguate labels
+  const entryCountByUser = new Map<string, number>();
+  for (const r of propResults) {
+    const uid = r.user_id as string;
+    entryCountByUser.set(uid, (entryCountByUser.get(uid) || 0) + 1);
+  }
+
+  // Get mock scores (one per user, labelled with user display name only)
   const mockResults = await getMockLeaderboard(year);
   const mockMap = new Map(mockResults.map(m => [m.userId, m]));
+  const mockAttached = new Set<string>(); // mock userIds we've already paired
 
-  // Combine: all users who have either props or mock
-  const userMap = new Map<string, {
+  // Build rows, one per entry. The user's mock-draft score is attached to
+  // their FIRST entry (alphabetical by entry name) so it's only counted
+  // once toward their total.
+  type Row = {
+    rowKey: string;
     userId: string;
+    entryId: string | null;
     displayName: string;
     propPoints: number;
     mockPoints: number;
@@ -518,31 +535,57 @@ export async function getLeaderboard(year: number) {
     correct3pt: number;
     correct2pt: number;
     exactMocks: number;
-  }>();
+  };
+  const rows: Row[] = [];
 
-  for (const r of propResults) {
-    const userId = r.id as string;
+  // Sort propResults so the alphabetically-first entry per user is processed first
+  const sortedProps = [...propResults].sort((a, b) => {
+    const u = (a.user_id as string).localeCompare(b.user_id as string);
+    if (u !== 0) return u;
+    return (a.entry_name as string).localeCompare(b.entry_name as string);
+  });
+
+  for (const r of sortedProps) {
+    const userId = r.user_id as string;
+    const entryId = r.entry_id as string;
+    const entryName = r.entry_name as string;
+    const baseDisplay = r.display_name as string;
+    const multiple = (entryCountByUser.get(userId) || 0) > 1;
+    const display = multiple ? `${baseDisplay} — ${entryName}` : baseDisplay;
+
+    // Attach mock score only to the first entry row for this user
     const mock = mockMap.get(userId);
+    let mockPts = 0;
+    let exactMocks = 0;
+    if (mock && !mockAttached.has(userId)) {
+      mockPts = mock.mockPoints;
+      exactMocks = mock.exactMatches;
+      mockAttached.add(userId);
+    }
+
     const propPts = r.prop_points as number;
-    const mockPts = mock?.mockPoints || 0;
-    userMap.set(userId, {
+    rows.push({
+      rowKey: entryId,
       userId,
-      displayName: r.display_name as string,
+      entryId,
+      displayName: display,
       propPoints: propPts,
       mockPoints: mockPts,
       totalPoints: propPts + mockPts,
       correctPicks: r.correct_picks as number,
       correct3pt: r.correct_3pt as number,
       correct2pt: r.correct_2pt as number,
-      exactMocks: mock?.exactMatches || 0,
+      exactMocks,
     });
   }
 
-  // Add users who only have mock (no prop entry)
+  // Add users who have a mock but no submitted prop entry
   for (const mock of mockResults) {
-    if (!userMap.has(mock.userId)) {
-      userMap.set(mock.userId, {
+    if (!mockAttached.has(mock.userId)) {
+      rows.push({
+        rowKey: `mock-only-${mock.userId}`,
         userId: mock.userId,
+        entryId: null,
         displayName: mock.displayName,
         propPoints: 0,
         mockPoints: mock.mockPoints,
@@ -556,7 +599,7 @@ export async function getLeaderboard(year: number) {
   }
 
   // Sort and rank
-  const sorted = Array.from(userMap.values()).sort((a, b) =>
+  const sorted = rows.sort((a, b) =>
     b.totalPoints - a.totalPoints ||
     b.correct3pt - a.correct3pt ||
     b.exactMocks - a.exactMocks ||
@@ -567,6 +610,7 @@ export async function getLeaderboard(year: number) {
   return sorted.map((r, index) => ({
     rank: index + 1,
     userId: r.userId,
+    entryId: r.entryId,
     displayName: r.displayName,
     totalPoints: r.totalPoints,
     propPoints: r.propPoints,

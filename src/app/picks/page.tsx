@@ -23,6 +23,13 @@ interface Prospect {
   conference: string;
 }
 
+interface Entry {
+  id: string;
+  name: string;
+  picks: Record<string, unknown>;
+  submittedAt: string | null;
+}
+
 export default function PicksPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [picks, setPicks] = useState<Record<string, unknown>>({});
@@ -36,6 +43,12 @@ export default function PicksPage() {
   const [loading, setLoading] = useState(true);
   const saveTimeout = useRef<NodeJS.Timeout>(null);
   const year = 2026;
+
+  // Multi-entry state
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [currentEntryId, setCurrentEntryId] = useState<string | null>(null);
+  const [renamingEntry, setRenamingEntry] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
 
   // Mock draft state for inference + contradiction warnings
   const [mockPicks, setMockPicks] = useState<Record<number, string>>({});
@@ -55,11 +68,11 @@ export default function PicksPage() {
   useEffect(() => {
     Promise.all([
       fetch(`/api/questions?year=${year}`).then(r => r.json()),
-      fetch(`/api/entries?year=${year}`).then(r => r.json()),
+      fetch(`/api/entries?year=${year}&list=1`).then(r => r.json()),
       fetch('/api/admin/year-settings').then(r => r.json()),
       fetch('/api/prospects').then(r => r.json()),
       fetch(`/api/mock-draft?year=${year}`).then(r => r.json()),
-    ]).then(([q, entry, years, p, mock]) => {
+    ]).then(([q, entryList, years, p, mock]) => {
       setQuestions(q);
       setProspects(p);
 
@@ -72,12 +85,25 @@ export default function PicksPage() {
         }
       }
 
-      // Load existing prop answers
+      // Normalize entry list
+      const list: Entry[] = Array.isArray(entryList)
+        ? entryList.map((e: { id: string; name: string; picks: unknown; submittedAt: string | null }) => ({
+            id: e.id,
+            name: e.name || 'Entry 1',
+            picks: (typeof e.picks === 'string' ? JSON.parse(e.picks) : e.picks || {}) as Record<string, unknown>,
+            submittedAt: e.submittedAt,
+          }))
+        : [];
+      setEntries(list);
+
+      // Pick the first entry (or stay with null if none yet — one will be created on first save)
+      const first = list[0];
       let existingPicks: Record<string, unknown> = {};
-      if (entry?.picks) {
-        existingPicks = typeof entry.picks === 'string' ? JSON.parse(entry.picks) : entry.picks;
+      if (first) {
+        setCurrentEntryId(first.id);
+        existingPicks = first.picks;
+        if (first.submittedAt) setSubmitted(true);
       }
-      if (entry?.submittedAt) setSubmitted(true);
 
       // Load mock draft and infer answers
       const mockData = mock?.picks || {};
@@ -103,13 +129,29 @@ export default function PicksPage() {
 
         // If we auto-filled anything, save it
         if (applied.size > 0) {
-          // Schedule a save
-          setTimeout(() => {
-            fetch('/api/entries', {
+          const targetEntryId = first?.id ?? null;
+          setTimeout(async () => {
+            const res = await fetch('/api/entries', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ year, picks: merged, submitted: false }),
+              body: JSON.stringify({ year, entryId: targetEntryId, picks: merged, submitted: false }),
             });
+            // Capture newly-created entry id so subsequent saves target the same row
+            if (res.ok && !targetEntryId) {
+              const created = await res.json();
+              if (created?.id) {
+                setCurrentEntryId(created.id);
+                setEntries(prev => [
+                  {
+                    id: created.id,
+                    name: created.name || 'Entry 1',
+                    picks: merged,
+                    submittedAt: null,
+                  },
+                  ...prev,
+                ]);
+              }
+            }
           }, 500);
         }
       } else {
@@ -146,17 +188,117 @@ export default function PicksPage() {
     if (locked) return;
     setSaving(true);
     try {
-      await fetch('/api/entries', {
+      const res = await fetch('/api/entries', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, picks: newPicks, submitted: submit }),
+        body: JSON.stringify({ year, entryId: currentEntryId, picks: newPicks, submitted: submit }),
       });
+      if (res.ok) {
+        const saved = await res.json();
+        // First save for this session — capture the id so later saves target it
+        if (!currentEntryId && saved?.id) {
+          setCurrentEntryId(saved.id);
+          setEntries(prev => [
+            {
+              id: saved.id,
+              name: saved.name || 'Entry 1',
+              picks: newPicks,
+              submittedAt: saved.submittedAt || null,
+            },
+            ...prev,
+          ]);
+        } else {
+          // Keep the in-memory entry list in sync (picks + submittedAt)
+          setEntries(prev => prev.map(e =>
+            e.id === (saved?.id || currentEntryId)
+              ? { ...e, picks: newPicks, submittedAt: saved?.submittedAt ?? e.submittedAt }
+              : e
+          ));
+        }
+      }
       setSaved(true);
       if (submit) setSubmitted(true);
     } finally {
       setSaving(false);
     }
-  }, [locked]);
+  }, [locked, currentEntryId]);
+
+  // Switch to a different entry — load its picks into state
+  const switchEntry = (entryId: string) => {
+    if (entryId === currentEntryId) return;
+    // Flush any pending save before switching
+    if (saveTimeout.current) {
+      clearTimeout(saveTimeout.current);
+      saveTimeout.current = null;
+    }
+    const target = entries.find(e => e.id === entryId);
+    if (!target) return;
+    setCurrentEntryId(entryId);
+    setPicks(target.picks);
+    setSubmitted(!!target.submittedAt);
+    setInferredApplied(new Set()); // inferred highlights don't apply across entries
+    setSaved(true);
+    setRenamingEntry(false);
+  };
+
+  const createNewEntry = async () => {
+    if (locked) return;
+    if (saveTimeout.current) {
+      clearTimeout(saveTimeout.current);
+      saveTimeout.current = null;
+    }
+    const res = await fetch('/api/entries', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ year, picks: {}, submitted: false }),
+    });
+    if (!res.ok) return;
+    const created = await res.json();
+    const newEntry: Entry = {
+      id: created.id,
+      name: created.name || `Entry ${entries.length + 1}`,
+      picks: {},
+      submittedAt: null,
+    };
+    setEntries(prev => [...prev, newEntry]);
+    setCurrentEntryId(created.id);
+    setPicks({});
+    setSubmitted(false);
+    setInferredApplied(new Set());
+  };
+
+  const renameCurrentEntry = async () => {
+    if (!currentEntryId) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) { setRenamingEntry(false); return; }
+    const res = await fetch('/api/entries', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ year, entryId: currentEntryId, name: trimmed }),
+    });
+    if (res.ok) {
+      setEntries(prev => prev.map(e => e.id === currentEntryId ? { ...e, name: trimmed } : e));
+    }
+    setRenamingEntry(false);
+  };
+
+  const deleteCurrentEntry = async () => {
+    if (!currentEntryId) return;
+    if (entries.length <= 1) {
+      alert("Can't delete your only entry. Create another first if you want to start over.");
+      return;
+    }
+    const current = entries.find(e => e.id === currentEntryId);
+    if (!confirm(`Delete "${current?.name}"? This can't be undone.`)) return;
+    const res = await fetch(`/api/entries?entryId=${currentEntryId}`, { method: 'DELETE' });
+    if (!res.ok) { alert('Failed to delete.'); return; }
+    const remaining = entries.filter(e => e.id !== currentEntryId);
+    setEntries(remaining);
+    const next = remaining[0];
+    setCurrentEntryId(next.id);
+    setPicks(next.picks);
+    setSubmitted(!!next.submittedAt);
+  };
 
   const updatePick = (questionId: string, value: unknown) => {
     // Check if changing away from an inferred value
@@ -242,6 +384,95 @@ export default function PicksPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Entry tabs */}
+        <div className="mb-4 bg-card border border-card-border rounded-xl p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs text-muted font-semibold uppercase tracking-wide">Your Entries</p>
+            {currentEntryId && !locked && (
+              <div className="flex items-center gap-2">
+                {entries.length > 1 && (
+                  <button
+                    onClick={deleteCurrentEntry}
+                    className="text-xs text-muted hover:text-danger"
+                    title="Delete this entry"
+                  >
+                    Delete
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    const cur = entries.find(e => e.id === currentEntryId);
+                    setRenameValue(cur?.name || '');
+                    setRenamingEntry(true);
+                  }}
+                  className="text-xs text-muted hover:text-primary"
+                >
+                  Rename
+                </button>
+              </div>
+            )}
+          </div>
+          {renamingEntry ? (
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') renameCurrentEntry();
+                  if (e.key === 'Escape') setRenamingEntry(false);
+                }}
+                className="flex-1 px-3 py-1.5 bg-background border border-card-border rounded-lg text-sm"
+                placeholder="Entry name"
+                maxLength={40}
+              />
+              <button
+                onClick={renameCurrentEntry}
+                className="text-sm px-3 py-1.5 bg-primary text-white rounded-lg hover:bg-primary-light"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setRenamingEntry(false)}
+                className="text-sm px-2 py-1.5 text-muted hover:text-foreground"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+              {entries.map(e => (
+                <button
+                  key={e.id}
+                  onClick={() => switchEntry(e.id)}
+                  className={`shrink-0 text-sm px-3 py-1.5 rounded-lg whitespace-nowrap border transition ${
+                    e.id === currentEntryId
+                      ? 'bg-primary text-white border-primary'
+                      : 'bg-background text-foreground border-card-border hover:bg-card'
+                  }`}
+                >
+                  {e.name}
+                  {e.submittedAt && <span className="ml-1.5 text-xs">✓</span>}
+                </button>
+              ))}
+              {!locked && (
+                <button
+                  onClick={createNewEntry}
+                  className="shrink-0 text-sm px-3 py-1.5 rounded-lg whitespace-nowrap border border-dashed border-card-border text-muted hover:text-primary hover:border-primary transition"
+                >
+                  + New Entry
+                </button>
+              )}
+            </div>
+          )}
+          {entries.length > 1 && (
+            <p className="text-xs text-muted mt-2">
+              Each entry scores separately on the leaderboard.
+            </p>
+          )}
         </div>
 
         {/* Auto-filled banner */}

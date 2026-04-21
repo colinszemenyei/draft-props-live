@@ -37,13 +37,19 @@ export async function GET(request: NextRequest) {
   }
 
   const entryRows = (await client.execute({
-    sql: `SELECT e.id, e.picks, u.display_name
+    sql: `SELECT e.id, e.name, e.picks, e.user_id, u.display_name
           FROM entries e
           JOIN users u ON e.user_id = u.id
           WHERE e.year = ? AND e.submitted_at IS NOT NULL
-          ORDER BY u.display_name`,
+          ORDER BY u.display_name, e.name`,
     args: [year],
-  })).rows as unknown as { id: string; picks: string; display_name: string }[];
+  })).rows as unknown as {
+    id: string;
+    name: string;
+    picks: string;
+    user_id: string;
+    display_name: string;
+  }[];
 
   if (entryRows.length === 0) return NextResponse.json([]);
 
@@ -75,9 +81,20 @@ export async function GET(request: NextRequest) {
     scoresByEntry.set(s.entry_id, list);
   }
 
+  // Count entries per user so we can decide whether to show the entry name
+  const entryCountByUser = new Map<string, number>();
+  for (const r of entryRows) {
+    entryCountByUser.set(r.user_id, (entryCountByUser.get(r.user_id) || 0) + 1);
+  }
+
   const result = entryRows.map(r => ({
     id: r.id,
-    displayName: r.display_name,
+    entryName: r.name,
+    // If a user has >1 entry, disambiguate by appending the entry name.
+    displayName:
+      (entryCountByUser.get(r.user_id) || 0) > 1
+        ? `${r.display_name} — ${r.name}`
+        : r.display_name,
     picks: typeof r.picks === 'string' ? JSON.parse(r.picks) : r.picks,
     scores: scoresByEntry.get(r.id) || [],
   }));

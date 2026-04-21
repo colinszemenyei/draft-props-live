@@ -62,6 +62,7 @@ export const entries = sqliteTable('entries', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id),
   year: integer('year').notNull().references(() => draftYears.year),
+  name: text('name').notNull().default('Entry 1'),
   submittedAt: text('submitted_at'),
   picks: text('picks', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
 });

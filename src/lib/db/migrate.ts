@@ -36,9 +36,9 @@ export async function runMigrations() {
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id),
       year INTEGER NOT NULL REFERENCES draft_years(year),
+      name TEXT NOT NULL DEFAULT 'Entry 1',
       submitted_at TEXT,
-      picks TEXT NOT NULL DEFAULT '{}',
-      UNIQUE(user_id, year)
+      picks TEXT NOT NULL DEFAULT '{}'
     );
 
     CREATE TABLE IF NOT EXISTS draft_picks (
