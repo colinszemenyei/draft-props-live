@@ -1,0 +1,40 @@
+name: Keep Render warm
+
+# Render's free tier spins the service down after 15 minutes of idle.
+# This workflow pings the app every 5 minutes so it never cold-starts
+# on a real user. GitHub Actions cron can run late under load, so the
+# job fires a handful of pings per run to improve the odds of at least
+# one landing in time.
+#
+# GitHub's cron minimum is 5 minutes and the scheduler can sometimes
+# delay by 10-15 minutes during peak load. If cold starts still happen
+# occasionally, layer a second free pinger (UptimeRobot, cron-job.org)
+# on top — they run independently and cover each other's gaps.
+
+on:
+  schedule:
+    # Every 5 minutes — the tightest interval GitHub Actions allows
+    - cron: '*/5 * * * *'
+  # Manual trigger for spot-warming before a big moment (e.g. right
+  # before sharing the link with the pool)
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping homepage
+        run: |
+          URL="https://draft-props-live.onrender.com/"
+          # 3 pings 30s apart. First may take 30-50s on cold wake,
+          # subsequent are instant and confirm the server is up.
+          for i in 1 2 3; do
+            echo "Ping $i at $(date -u +%H:%M:%S)..."
+            curl -sS -o /dev/null \
+              -w "  Status %{http_code}  Time %{time_total}s\n" \
+              --max-time 90 \
+              -H "User-Agent: keep-warm-cron" \
+              "$URL" || echo "  (failed, will retry)"
+            [ "$i" -lt 3 ] && sleep 30
+          done
