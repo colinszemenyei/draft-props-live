@@ -208,9 +208,11 @@ export default function DraftBoardPage() {
   }, [selectedSlot, picks]);
 
   const handleSlotClick = (pickNumber: number) => {
-    if (mocksLoaded && mockDrafts.length > 0) {
-      setSelectedSlot(pickNumber);
-    }
+    // Always open the modal. The modal handles three states:
+    // 1. Mocks exist → show everyone's prediction for this slot
+    // 2. Mocks loaded but empty → "No mock drafts submitted yet"
+    // 3. Mocks not loaded (pre-lock, non-admin) → same empty message
+    setSelectedSlot(pickNumber);
   };
 
   if (loading) {
@@ -259,7 +261,7 @@ export default function DraftBoardPage() {
             const pick = picks.find(p => p.pickNumber === slot.pick);
             const isOnClock = slot.pick === currentPick && picks.length < 32;
             const isNew = slot.pick === newPickNum;
-            const isClickable = mocksLoaded && mockDrafts.length > 0;
+            const isClickable = true; // every slot is clickable; the modal handles empty states
 
             return (
               <div
