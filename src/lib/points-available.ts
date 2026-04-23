@@ -330,15 +330,27 @@ export function computePointsAvailable(
   entryScores: EntryScore[],
   draftPicks: DraftPickLite[],
 ): number {
-  const scoredQ = new Set(entryScores.map(s => s.question_id));
-  let available = 0;
-  for (const q of questions) {
-    if (scoredQ.has(q.id)) continue; // already decided (earned or lost)
-    const viable = isAnswerStillViable(q, userPicks[q.id], draftPicks);
-    if (viable === false) continue;
-    available += q.points;
+  try {
+    if (!Array.isArray(questions) || !Array.isArray(entryScores) || !Array.isArray(draftPicks)) return 0;
+    const picksObj = userPicks && typeof userPicks === 'object' ? userPicks : {};
+    const scoredQ = new Set(entryScores.map(s => s?.question_id).filter(Boolean));
+    let available = 0;
+    for (const q of questions) {
+      if (!q || !q.id) continue;
+      if (scoredQ.has(q.id)) continue;
+      let viable: boolean | null = null;
+      try {
+        viable = isAnswerStillViable(q, picksObj[q.id], draftPicks);
+      } catch {
+        viable = null;
+      }
+      if (viable === false) continue;
+      available += q.points || 0;
+    }
+    return available;
+  } catch {
+    return 0;
   }
-  return available;
 }
 
 /**
@@ -453,18 +465,36 @@ export function computeProjectedPropPoints(
   entryScores: EntryScore[],
   draftPicks: DraftPickLite[],
 ): number {
-  const scoredPoints = entryScores.reduce((s, sc) => s + sc.points_earned, 0);
-  const scoredQ = new Set(entryScores.map(s => s.question_id));
-  let projectedAdds = 0;
+  try {
+    if (!Array.isArray(entryScores)) entryScores = [];
+    if (!Array.isArray(questions)) questions = [];
+    if (!Array.isArray(draftPicks)) draftPicks = [];
+    const picksObj = userPicks && typeof userPicks === 'object' ? userPicks : {};
 
-  for (const q of questions) {
-    if (scoredQ.has(q.id)) continue;
-    const userAnswer = userPicks[q.id];
-    if (userAnswer === undefined || userAnswer === null || userAnswer === '') continue;
-    const leaning = currentLeaning(q, draftPicks);
-    if (leaning === null) continue;
-    if (String(userAnswer) === leaning) projectedAdds += q.points;
+    const scoredPoints = entryScores.reduce((s, sc) => s + (sc?.points_earned || 0), 0);
+    const scoredQ = new Set(entryScores.map(s => s?.question_id).filter(Boolean));
+    let projectedAdds = 0;
+
+    for (const q of questions) {
+      if (!q || !q.id) continue;
+      if (scoredQ.has(q.id)) continue;
+      const userAnswer = picksObj[q.id];
+      if (userAnswer === undefined || userAnswer === null || userAnswer === '') continue;
+      let leaning: string | null = null;
+      try {
+        leaning = currentLeaning(q, draftPicks);
+      } catch {
+        leaning = null;
+      }
+      if (leaning === null) continue;
+      if (String(userAnswer) === leaning) projectedAdds += q.points || 0;
+    }
+
+    return scoredPoints + projectedAdds;
+  } catch {
+    // On any unexpected error, fall back to just the already-earned total
+    return Array.isArray(entryScores)
+      ? entryScores.reduce((s, sc) => s + (sc?.points_earned || 0), 0)
+      : 0;
   }
-
-  return scoredPoints + projectedAdds;
 }
