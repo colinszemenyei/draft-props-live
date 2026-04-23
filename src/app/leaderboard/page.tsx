@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import AppShell from '@/components/AppShell';
 import { useSSE } from '@/lib/hooks';
 import { DRAFT_ORDER_2026 } from '@/lib/draft-order';
+import { computePointsAvailable, computeProjectedPropPoints } from '@/lib/points-available';
 
 interface MockData {
   id: string;
@@ -21,6 +22,8 @@ interface ActualPick {
   position: string;
   team: string;
   college: string;
+  conference: string;
+  isTrade?: boolean;
 }
 
 interface LeaderboardEntry {
@@ -52,8 +55,11 @@ interface EntryDetail {
 interface Question {
   id: string;
   questionText: string;
+  questionType: string;
+  answerOptions: string[] | null;
   correctAnswer: string | null;
   points: number;
+  scoringRule: Record<string, unknown> | null;
 }
 
 // Split "Tom russell — Hail Mary" into { display: "Tom russell", entry: "Hail Mary" }.
@@ -76,6 +82,9 @@ export default function LeaderboardPage() {
   const [error, setError] = useState('');
   // Per-row view toggle: 'props' | 'mock'
   const [rowTab, setRowTab] = useState<Record<string, 'props' | 'mock'>>({});
+  // Page-wide toggle: show current totals, or totals projected if current
+  // prop leanings hold.
+  const [viewMode, setViewMode] = useState<'current' | 'projected'>('current');
   // Previous-rank lookup for the movement indicator (↑3, ↓2, —).
   // Keyed on rowKey so multi-entry users track per entry, not per user.
   const prevRanksRef = useRef<Map<string, number>>(new Map());
@@ -164,13 +173,97 @@ export default function LeaderboardPage() {
     );
   }
 
+  // Per-row: points available + projected total. Mocks aren't projected
+  // (no clear "leaning" for a specific pick slot) — only prop points shift.
+  const projectionByKey = useMemo(() => {
+    const map = new Map<string, { projected: number; available: number; propsProjection: number }>();
+    for (const row of leaderboard) {
+      const key = row.entryId || `mock-only-${row.userId}`;
+      const userEntry = row.entryId
+        ? entries.find(e => e.id === row.entryId)
+        : entries.find(e => e.userId === row.userId);
+      if (!userEntry) {
+        map.set(key, { projected: row.totalPoints, available: 0, propsProjection: row.propPoints });
+        continue;
+      }
+      const propsProjection = computeProjectedPropPoints(
+        questions,
+        userEntry.picks,
+        userEntry.scores,
+        actualPicks,
+      );
+      const available = computePointsAvailable(
+        questions,
+        userEntry.picks,
+        userEntry.scores,
+        actualPicks,
+      );
+      map.set(key, {
+        projected: propsProjection + row.mockPoints, // mock stays as-is
+        available,
+        propsProjection,
+      });
+    }
+    return map;
+  }, [leaderboard, entries, questions, actualPicks]);
+
+  // Re-sort according to view mode. Current view uses server ranks as-is.
+  // Projected view re-ranks by projected totals; preserves tiebreakers where
+  // possible via secondary sort keys.
+  const displayedBoard = useMemo(() => {
+    if (viewMode === 'current') return leaderboard;
+    const withProjected = leaderboard.map(row => {
+      const key = row.entryId || `mock-only-${row.userId}`;
+      const projected = projectionByKey.get(key)?.projected ?? row.totalPoints;
+      return { row, projected };
+    });
+    withProjected.sort(
+      (a, b) =>
+        b.projected - a.projected ||
+        b.row.correctPicks - a.row.correctPicks ||
+        b.row.exactMocks - a.row.exactMocks ||
+        a.row.displayName.localeCompare(b.row.displayName),
+    );
+    return withProjected.map((w, i) => ({ ...w.row, rank: i + 1 }));
+  }, [viewMode, leaderboard, projectionByKey]);
+
   return (
     <AppShell>
       <div className="md:ml-48">
-        <h1 className="text-2xl font-bold mb-6">Leaderboard</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h1 className="text-2xl font-bold">Leaderboard</h1>
+
+          {/* View mode toggle */}
+          <div className="inline-flex bg-card border border-card-border rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('current')}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-md transition ${
+                viewMode === 'current' ? 'bg-primary text-white' : 'text-muted hover:text-foreground'
+              }`}
+            >
+              Current
+            </button>
+            <button
+              onClick={() => setViewMode('projected')}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-md transition ${
+                viewMode === 'projected' ? 'bg-primary text-white' : 'text-muted hover:text-foreground'
+              }`}
+              title="Shows what each total would be if every still-live prop resolves in its current leaning direction."
+            >
+              If Props Hold
+            </button>
+          </div>
+        </div>
+
+        {viewMode === 'projected' && (
+          <p className="text-xs text-muted mb-3">
+            Projected totals assume every unresolved over/under prop resolves in its current leaning.
+            Mock-draft points use already-earned values only. Ranks re-sort.
+          </p>
+        )}
 
         <div className="space-y-2">
-          {leaderboard.map((entry) => {
+          {displayedBoard.map((entry) => {
             // rowKey is unique per leaderboard row (entryId if present, else userId)
             const rowKey = entry.entryId || `mock-only-${entry.userId}`;
             const userEntry = entry.entryId
@@ -214,13 +307,30 @@ export default function LeaderboardPage() {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-2xl font-bold text-primary tabular-nums">{entry.totalPoints}</div>
-                    {(entry.propPoints > 0 || entry.mockPoints > 0) && (
-                      <div className="flex items-center justify-end gap-1.5 text-[10px] text-muted">
-                        {entry.propPoints > 0 && <span>Props: {entry.propPoints}</span>}
-                        {entry.mockPoints > 0 && <span>Mock: {entry.mockPoints}</span>}
-                      </div>
-                    )}
+                    {(() => {
+                      const proj = projectionByKey.get(rowKey);
+                      const projectedTotal = proj?.projected ?? entry.totalPoints;
+                      const shown = viewMode === 'projected' ? projectedTotal : entry.totalPoints;
+                      const delta = projectedTotal - entry.totalPoints;
+                      return (
+                        <>
+                          <div className="text-2xl font-bold text-primary tabular-nums">{shown}</div>
+                          <div className="flex items-center justify-end gap-1.5 text-[10px] text-muted">
+                            {viewMode === 'current' && delta > 0 && (
+                              <span className="text-success font-semibold">+{delta} lean</span>
+                            )}
+                            {viewMode === 'current' && proj && proj.available > 0 && (
+                              <span>{proj.available} live</span>
+                            )}
+                            {viewMode === 'projected' && entry.totalPoints !== projectedTotal && (
+                              <span className="text-muted">now {entry.totalPoints}</span>
+                            )}
+                            {entry.propPoints > 0 && <span>P:{entry.propPoints}</span>}
+                            {entry.mockPoints > 0 && <span>M:{entry.mockPoints}</span>}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                   <span className="text-muted text-xs shrink-0">{isExpanded ? '▲' : '▼'}</span>
                 </button>
