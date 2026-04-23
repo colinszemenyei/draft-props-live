@@ -349,7 +349,12 @@ export default function LeaderboardPage() {
                       entry={entry}
                       userEntry={userEntry}
                       questions={questions}
-                      mock={mocks.find(m => m.entryId === entry.entryId) || null}
+                      // Look up by entryId; fall back to userId for mock-only rows
+                      mock={
+                        (entry.entryId && mocks.find(m => m.entryId === entry.entryId)) ||
+                        mocks.find(m => m.userId === entry.userId) ||
+                        null
+                      }
                       actualPicks={actualPicks}
                       activeTab={rowTab[rowKey] || 'props'}
                       onTabChange={(tab) => setRowTab({ ...rowTab, [rowKey]: tab })}
@@ -387,24 +392,15 @@ function ExpandedView({
   activeTab: 'props' | 'mock';
   onTabChange: (tab: 'props' | 'mock') => void;
 }) {
-  const hasProps = !!userEntry;
-  const hasMock = !!mock;
-
-  // If the active tab isn't available, fall back to whichever one is
-  const tab = activeTab === 'mock' && !hasMock ? 'props' : activeTab === 'props' && !hasProps ? 'mock' : activeTab;
-
-  if (!hasProps && !hasMock) {
-    return <p className="text-muted text-sm text-center py-2">No detailed scores available</p>;
-  }
+  const tab = activeTab;
 
   return (
     <div>
-      {/* Tabs */}
+      {/* Tabs — always clickable; content handles its own empty state */}
       <div className="flex gap-1 mb-4 bg-background border border-card-border rounded-lg p-1 w-fit">
         <button
           onClick={() => onTabChange('props')}
-          disabled={!hasProps}
-          className={`text-xs font-semibold px-3 py-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed ${
+          className={`text-xs font-semibold px-3 py-1.5 rounded-md transition ${
             tab === 'props' ? 'bg-primary text-white' : 'text-muted hover:text-foreground'
           }`}
         >
@@ -412,8 +408,7 @@ function ExpandedView({
         </button>
         <button
           onClick={() => onTabChange('mock')}
-          disabled={!hasMock}
-          className={`text-xs font-semibold px-3 py-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed ${
+          className={`text-xs font-semibold px-3 py-1.5 rounded-md transition ${
             tab === 'mock' ? 'bg-primary text-white' : 'text-muted hover:text-foreground'
           }`}
         >
@@ -421,36 +416,48 @@ function ExpandedView({
         </button>
       </div>
 
-      {tab === 'props' && userEntry && (
-        <div className="space-y-1">
-          {questions.map(q => {
-            const score = userEntry.scores.find(s => s.question_id === q.id);
-            const userPick = userEntry.picks[q.id];
-            return (
-              <div key={q.id} className="flex items-center justify-between text-sm py-1 border-b border-card-border/50 last:border-0">
-                <div className="flex-1 min-w-0 pr-2">
-                  <div className="text-muted text-xs truncate">{q.questionText}</div>
-                  <div className="font-medium text-xs truncate">
-                    {Array.isArray(userPick) ? (userPick as string[]).join(' → ') : String(userPick || '—')}
+      {tab === 'props' && (
+        userEntry ? (
+          <div className="space-y-1">
+            {questions.map(q => {
+              const score = userEntry.scores.find(s => s.question_id === q.id);
+              const userPick = userEntry.picks[q.id];
+              return (
+                <div key={q.id} className="flex items-center justify-between text-sm py-1 border-b border-card-border/50 last:border-0">
+                  <div className="flex-1 min-w-0 pr-2">
+                    <div className="text-muted text-xs truncate">{q.questionText}</div>
+                    <div className="font-medium text-xs truncate">
+                      {Array.isArray(userPick) ? (userPick as string[]).join(' → ') : String(userPick || '—')}
+                    </div>
                   </div>
+                  {score ? (
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                      score.is_correct ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'
+                    }`}>
+                      {score.is_correct ? `+${score.points_earned}` : '0'}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted px-2 py-0.5 rounded-full bg-card-border/30">Pending</span>
+                  )}
                 </div>
-                {score ? (
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${
-                    score.is_correct ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'
-                  }`}>
-                    {score.is_correct ? `+${score.points_earned}` : '0'}
-                  </span>
-                ) : (
-                  <span className="text-xs text-muted px-2 py-0.5 rounded-full bg-card-border/30">Pending</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-muted text-sm text-center py-6">
+            This user hasn&apos;t submitted prop answers yet.
+          </p>
+        )
       )}
 
-      {tab === 'mock' && mock && (
-        <MockBoard mock={mock} actualPicks={actualPicks} />
+      {tab === 'mock' && (
+        mock ? (
+          <MockBoard mock={mock} actualPicks={actualPicks} />
+        ) : (
+          <p className="text-muted text-sm text-center py-6">
+            This user hasn&apos;t submitted a mock draft yet.
+          </p>
+        )
       )}
     </div>
   );
