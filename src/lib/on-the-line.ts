@@ -458,6 +458,41 @@ export function computeOnTheLine(
       }
 
       // ================================================================
+      case 'trade_count': {
+        const threshold = (rule as { threshold?: number }).threshold;
+        if (typeof threshold !== 'number') break;
+        const tradeCount = picks.filter(p => p.isTrade).length;
+        const remaining = 32 - picks.length;
+        if (tradeCount > threshold) break; // Over locked
+        if (tradeCount + remaining < threshold) break; // Under locked
+
+        const picksUntilTip = Math.max(0, Math.ceil(threshold - tradeCount));
+        const imminence = picksUntilTip <= 1 ? 3 : picksUntilTip <= 3 ? 7 : 11;
+
+        const buckets = bucketEntries(entries, q.id, (ans) =>
+          ans === 'Over' || ans === 'Under' ? ans as string : null,
+        );
+        items.push({
+          questionId: q.id,
+          questionText: q.questionText,
+          points: q.points,
+          imminence,
+          urgency: picksUntilTip <= 1 ? 'One away from Over' : 'Ongoing',
+          explainer: `${tradeCount} trade${tradeCount === 1 ? '' : 's'} so far. Threshold: ${threshold}.`,
+          tally: {
+            current: tradeCount,
+            threshold,
+            label: `Trades in Round 1`,
+          },
+          buckets: [
+            { label: 'Over', entries: buckets.get('Over') || [] },
+            { label: 'Under', entries: buckets.get('Under') || [] },
+          ],
+        });
+        break;
+      }
+
+      // ================================================================
       case 'heisman_finalist_drafted': {
         // Imported dynamically to avoid a cycle — hardcoded names here.
         const finalists = ['Diego Pavia', 'Jeremiyah Love', 'Julian Sayin'];
