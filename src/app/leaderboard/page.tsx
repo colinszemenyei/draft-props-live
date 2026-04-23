@@ -3,6 +3,25 @@
 import { useState, useEffect, useRef } from 'react';
 import AppShell from '@/components/AppShell';
 import { useSSE } from '@/lib/hooks';
+import { DRAFT_ORDER_2026 } from '@/lib/draft-order';
+
+interface MockData {
+  id: string;
+  userId: string;
+  entryId: string;
+  displayName: string;
+  entryName: string;
+  picks: Record<string, string>;
+  scores: Array<{ pickNumber: number; pointsEarned: number; matchType: string }>;
+}
+
+interface ActualPick {
+  pickNumber: number;
+  playerName: string;
+  position: string;
+  team: string;
+  college: string;
+}
 
 interface LeaderboardEntry {
   rank: number;
@@ -52,7 +71,11 @@ export default function LeaderboardPage() {
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
   const [entries, setEntries] = useState<EntryDetail[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [mocks, setMocks] = useState<MockData[]>([]);
+  const [actualPicks, setActualPicks] = useState<ActualPick[]>([]);
   const [error, setError] = useState('');
+  // Per-row view toggle: 'props' | 'mock'
+  const [rowTab, setRowTab] = useState<Record<string, 'props' | 'mock'>>({});
   // Previous-rank lookup for the movement indicator (↑3, ↓2, —).
   // Keyed on rowKey so multi-entry users track per entry, not per user.
   const prevRanksRef = useRef<Map<string, number>>(new Map());
@@ -69,6 +92,16 @@ export default function LeaderboardPage() {
     if (sseEvent?.event === 'score_update') {
       const data = sseEvent.data as { leaderboard: LeaderboardEntry[] };
       applyLeaderboard(data.leaderboard);
+      // Fresh pick came in — refresh mock scores & actual picks so the
+      // expanded mock board updates live too.
+      fetch(`/api/mock-scores?year=${year}`)
+        .then(r => r.ok ? r.json() : [])
+        .then(mk => { if (Array.isArray(mk)) setMocks(mk); })
+        .catch(() => { /* silent */ });
+      fetch(`/api/draft-picks?year=${year}`)
+        .then(r => r.ok ? r.json() : [])
+        .then(ap => { if (Array.isArray(ap)) setActualPicks(ap); })
+        .catch(() => { /* silent */ });
     }
   }, [sseEvent]);
 
@@ -97,14 +130,18 @@ export default function LeaderboardPage() {
 
   async function loadData() {
     try {
-      const [lb, ent, q] = await Promise.all([
+      const [lb, ent, q, mk, ap] = await Promise.all([
         fetch(`/api/leaderboard?year=${year}`).then(r => { if (!r.ok) throw new Error('Not available'); return r.json(); }),
         fetch(`/api/picks?year=${year}`).then(r => r.ok ? r.json() : []).catch(() => []),
         fetch(`/api/questions?year=${year}`).then(r => r.json()),
+        fetch(`/api/mock-scores?year=${year}`).then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch(`/api/draft-picks?year=${year}`).then(r => r.ok ? r.json() : []).catch(() => []),
       ]);
       applyLeaderboard(Array.isArray(lb) ? lb : []);
       setEntries(Array.isArray(ent) ? ent : []);
       setQuestions(Array.isArray(q) ? q : []);
+      setMocks(Array.isArray(mk) ? mk : []);
+      setActualPicks(Array.isArray(ap) ? ap : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     } finally {
@@ -190,57 +227,15 @@ export default function LeaderboardPage() {
 
                 {isExpanded && (
                   <div className="mt-1 bg-card/50 border border-card-border rounded-xl p-4">
-                    {/* Props Section */}
-                    {userEntry && questions.length > 0 && (
-                      <div className="mb-4">
-                        <h4 className="text-xs font-bold text-primary uppercase tracking-wide mb-2">
-                          Prop Questions ({entry.propPoints} pts)
-                        </h4>
-                        <div className="space-y-1">
-                          {questions.map(q => {
-                            const score = userEntry.scores.find(s => s.question_id === q.id);
-                            const userPick = userEntry.picks[q.id];
-
-                            return (
-                              <div key={q.id} className="flex items-center justify-between text-sm py-1 border-b border-card-border/50 last:border-0">
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-muted text-xs truncate">{q.questionText}</div>
-                                  <div className="font-medium text-xs truncate">
-                                    {Array.isArray(userPick) ? (userPick as string[]).join(' → ') : String(userPick || '—')}
-                                  </div>
-                                </div>
-                                {score ? (
-                                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ml-2 ${
-                                    score.is_correct ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'
-                                  }`}>
-                                    {score.is_correct ? `+${score.points_earned}` : '0'}
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-muted px-2 py-0.5 rounded-full bg-card-border/30 ml-2">Pending</span>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Mock Score Summary */}
-                    {entry.mockPoints > 0 && (
-                      <div>
-                        <h4 className="text-xs font-bold text-primary uppercase tracking-wide mb-2">
-                          Mock Draft ({entry.mockPoints} pts)
-                        </h4>
-                        <div className="text-xs text-muted">
-                          {entry.exactMocks > 0 && <span className="inline-block bg-success/10 text-success px-2 py-0.5 rounded-full mr-2">{entry.exactMocks} exact</span>}
-                          <span>Total mock points: {entry.mockPoints}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {!userEntry && entry.mockPoints === 0 && (
-                      <p className="text-muted text-sm text-center py-2">No detailed scores available</p>
-                    )}
+                    <ExpandedView
+                      entry={entry}
+                      userEntry={userEntry}
+                      questions={questions}
+                      mock={mocks.find(m => m.entryId === entry.entryId) || null}
+                      actualPicks={actualPicks}
+                      activeTab={rowTab[rowKey] || 'props'}
+                      onTabChange={(tab) => setRowTab({ ...rowTab, [rowKey]: tab })}
+                    />
                   </div>
                 )}
               </div>
@@ -253,6 +248,159 @@ export default function LeaderboardPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+// Tabbed view inside an expanded leaderboard row: Props answers vs Mock board.
+function ExpandedView({
+  entry,
+  userEntry,
+  questions,
+  mock,
+  actualPicks,
+  activeTab,
+  onTabChange,
+}: {
+  entry: LeaderboardEntry;
+  userEntry: EntryDetail | undefined;
+  questions: Question[];
+  mock: MockData | null;
+  actualPicks: ActualPick[];
+  activeTab: 'props' | 'mock';
+  onTabChange: (tab: 'props' | 'mock') => void;
+}) {
+  const hasProps = !!userEntry;
+  const hasMock = !!mock;
+
+  // If the active tab isn't available, fall back to whichever one is
+  const tab = activeTab === 'mock' && !hasMock ? 'props' : activeTab === 'props' && !hasProps ? 'mock' : activeTab;
+
+  if (!hasProps && !hasMock) {
+    return <p className="text-muted text-sm text-center py-2">No detailed scores available</p>;
+  }
+
+  return (
+    <div>
+      {/* Tabs */}
+      <div className="flex gap-1 mb-4 bg-background border border-card-border rounded-lg p-1 w-fit">
+        <button
+          onClick={() => onTabChange('props')}
+          disabled={!hasProps}
+          className={`text-xs font-semibold px-3 py-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed ${
+            tab === 'props' ? 'bg-primary text-white' : 'text-muted hover:text-foreground'
+          }`}
+        >
+          Props ({entry.propPoints} pt{entry.propPoints === 1 ? '' : 's'})
+        </button>
+        <button
+          onClick={() => onTabChange('mock')}
+          disabled={!hasMock}
+          className={`text-xs font-semibold px-3 py-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed ${
+            tab === 'mock' ? 'bg-primary text-white' : 'text-muted hover:text-foreground'
+          }`}
+        >
+          Mock ({entry.mockPoints} pt{entry.mockPoints === 1 ? '' : 's'})
+        </button>
+      </div>
+
+      {tab === 'props' && userEntry && (
+        <div className="space-y-1">
+          {questions.map(q => {
+            const score = userEntry.scores.find(s => s.question_id === q.id);
+            const userPick = userEntry.picks[q.id];
+            return (
+              <div key={q.id} className="flex items-center justify-between text-sm py-1 border-b border-card-border/50 last:border-0">
+                <div className="flex-1 min-w-0 pr-2">
+                  <div className="text-muted text-xs truncate">{q.questionText}</div>
+                  <div className="font-medium text-xs truncate">
+                    {Array.isArray(userPick) ? (userPick as string[]).join(' → ') : String(userPick || '—')}
+                  </div>
+                </div>
+                {score ? (
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                    score.is_correct ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'
+                  }`}>
+                    {score.is_correct ? `+${score.points_earned}` : '0'}
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted px-2 py-0.5 rounded-full bg-card-border/30">Pending</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab === 'mock' && mock && (
+        <MockBoard mock={mock} actualPicks={actualPicks} />
+      )}
+    </div>
+  );
+}
+
+// 32-slot view showing the user's mock pick, the actual pick, and scoring
+// per slot. Colored by match_type so big hits jump out.
+function MockBoard({ mock, actualPicks }: { mock: MockData; actualPicks: ActualPick[] }) {
+  const actualByPick = new Map(actualPicks.map(p => [p.pickNumber, p]));
+  const scoreByPick = new Map(mock.scores.map(s => [s.pickNumber, s]));
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+      {DRAFT_ORDER_2026.map(slot => {
+        const mockedPlayer = mock.picks[String(slot.pick)] || null;
+        const actual = actualByPick.get(slot.pick);
+        const score = scoreByPick.get(slot.pick);
+        const matchTone =
+          score?.matchType === 'exact'
+            ? 'border-success bg-success/10'
+            : score?.matchType === 'within1' || score?.matchType === 'within2'
+              ? 'border-amber-300 bg-amber-50'
+              : score?.matchType === 'late_round'
+                ? 'border-primary bg-primary/5'
+                : score?.matchType === 'duplicate'
+                  ? 'border-card-border bg-gray-50 opacity-60'
+                  : actual
+                    ? 'border-card-border bg-white'
+                    : 'border-dashed border-card-border bg-white';
+        return (
+          <div
+            key={slot.pick}
+            className={`flex items-center gap-2 rounded-lg border p-2 text-xs ${matchTone}`}
+          >
+            <div className="shrink-0 w-6 text-center font-bold text-primary">{slot.pick}</div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-1">
+                <span className="text-[10px] text-muted shrink-0 w-14">Mocked:</span>
+                <span className="truncate font-medium">{mockedPlayer || '—'}</span>
+              </div>
+              {actual && (
+                <div className="flex items-baseline gap-1">
+                  <span className="text-[10px] text-muted shrink-0 w-14">Actual:</span>
+                  <span className="truncate">{actual.playerName}</span>
+                </div>
+              )}
+            </div>
+            {score ? (
+              <span
+                className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                  score.pointsEarned > 0
+                    ? score.matchType === 'exact'
+                      ? 'bg-success text-white'
+                      : 'bg-amber-500 text-white'
+                    : 'bg-card-border text-muted'
+                }`}
+              >
+                {score.pointsEarned > 0 ? `+${score.pointsEarned}` : '0'}
+              </span>
+            ) : actual ? (
+              <span className="shrink-0 text-[10px] text-muted">—</span>
+            ) : (
+              <span className="shrink-0 text-[10px] text-muted">⋯</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
