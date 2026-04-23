@@ -34,14 +34,27 @@ export default function AdminDraftPage() {
   }, []);
 
   async function loadData() {
-    const [picksRes, statusRes] = await Promise.all([
-      fetch(`/api/draft-picks?year=${year}`).then(r => r.json()),
-      fetch('/api/admin/scraper').then(r => r.json()).catch(() => null),
-    ]);
-    setPicks(picksRes);
-    setScraperStatus(statusRes);
-    setPickNumber(picksRes.length > 0 ? Math.max(...picksRes.map((p: DraftPick) => p.pickNumber)) + 1 : 1);
-    setLoading(false);
+    try {
+      const [picksRes, statusRes] = await Promise.all([
+        fetch(`/api/draft-picks?year=${year}`)
+          .then(r => r.ok ? r.json() : [])
+          .catch(() => []),
+        fetch('/api/admin/scraper')
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null),
+      ]);
+      // Defensive: only accept an array. If the endpoint returned an error
+      // envelope, bail to an empty list so the rest of the page can render.
+      const picksArr: DraftPick[] = Array.isArray(picksRes) ? picksRes : [];
+      setPicks(picksArr);
+      setScraperStatus(statusRes && typeof statusRes === 'object' ? statusRes : null);
+      const maxPick = picksArr.length > 0
+        ? Math.max(...picksArr.map(p => p.pickNumber))
+        : 0;
+      setPickNumber(Math.min(32, Math.max(1, maxPick + 1)));
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function savePick() {
