@@ -354,10 +354,22 @@ export function computePointsAvailable(
 }
 
 /**
- * For each unresolved prop, returns the side that's currently LEANING toward
- * winning based on draft state so far. null if the prop is unresolved and
- * leans no direction yet (e.g. a specific_pick_player with that pick not in,
- * or a first_at_position with nobody drafted at the position yet).
+ * For each UNRESOLVED prop, returns the status-quo side — the side that
+ * would win right now if nothing else changed. Projection only applies
+ * to the status quo because if the other side has already occurred, the
+ * prop is resolved and real points have been awarded by the scoring
+ * engine (no projection needed).
+ *
+ * Count-based props: always return 'Under' while unresolved. The moment
+ * the count crosses the threshold, the prop is resolved and the user's
+ * real score reflects the Over win.
+ *
+ * Yes/No props: always return 'No' while unresolved. The moment the
+ * event occurs (trade, finalist drafted, etc.), the prop is resolved.
+ *
+ * Returns null for prop types where there's no meaningful status quo
+ * (specific_pick_player, first_at_position, ordering, etc.) so those
+ * don't contribute to either current or projected totals until resolved.
  */
 function currentLeaning(question: Question, picks: DraftPickLite[], totalPicks = 32): string | null {
   const rule = question.scoringRule as Record<string, unknown> | null;
@@ -366,86 +378,93 @@ function currentLeaning(question: Question, picks: DraftPickLite[], totalPicks =
   const remaining = totalPicks - picks.length;
 
   switch (ruleType) {
-    case 'position_count': {
-      const pos = rule.position as string;
+    // Count-based over/under. If we're here at all and the prop isn't
+    // already resolved (scored), then by definition count ≤ threshold and
+    // Under is the status quo.
+    case 'position_count':
+    case 'conference_count':
+    case 'state_count':
+    case 'trade_count': {
       const threshold = rule.threshold as number;
-      const count = picks.filter(p => p.position === pos).length;
-      if (count > threshold) return 'Over';
-      if (count + remaining < threshold) return 'Under';
-      // Midway — lean toward whichever side the count is closer to
-      return count < threshold ? 'Under' : 'Over';
+      if (typeof threshold !== 'number') return null;
+      let count = 0;
+      if (ruleType === 'position_count') {
+        const pos = rule.position as string;
+        count = picks.filter(p => p.position === pos).length;
+      } else if (ruleType === 'conference_count') {
+        const conf = rule.conference as string;
+        count = picks.filter(p => p.conference === conf).length;
+      } else if (ruleType === 'state_count') {
+        const colleges = ((rule.colleges as string[]) || []).map(c => c.toLowerCase());
+        count = picks.filter(p => colleges.includes(p.college.toLowerCase())).length;
+      } else if (ruleType === 'trade_count') {
+        count = picks.filter(p => p.isTrade).length;
+      }
+      // If count already exceeded threshold, the engine would have
+      // resolved this prop as Over. If we're computing a projection,
+      // it's because scores don't include this question yet — defensive
+      // guard, don't project Over.
+      if (count > threshold) return null;
+      if (count + remaining < threshold) return null;
+      return 'Under';
     }
-    case 'conference_count': {
-      const conf = rule.conference as string;
-      const threshold = rule.threshold as number;
-      const count = picks.filter(p => p.conference === conf).length;
-      if (count > threshold) return 'Over';
-      if (count + remaining < threshold) return 'Under';
-      return count < threshold ? 'Under' : 'Over';
-    }
-    case 'state_count': {
-      const colleges = ((rule.colleges as string[]) || []).map(c => c.toLowerCase());
-      const threshold = rule.threshold as number;
-      const count = picks.filter(p => colleges.includes(p.college.toLowerCase())).length;
-      if (count > threshold) return 'Over';
-      if (count + remaining < threshold) return 'Under';
-      return count < threshold ? 'Under' : 'Over';
-    }
+
     case 'defensive_top_n': {
       const n = rule.n as number;
       const threshold = rule.threshold as number;
+      if (typeof n !== 'number' || typeof threshold !== 'number') return null;
       const topN = picks.filter(p => p.pickNumber <= n);
       const defCount = topN.filter(p => DEFENSIVE_POSITIONS.includes(p.position)).length;
       const remainingInTopN = Math.max(0, n - topN.length);
-      if (defCount > threshold) return 'Over';
-      if (defCount + remainingInTopN < threshold) return 'Under';
-      return defCount < threshold ? 'Under' : 'Over';
+      if (defCount > threshold) return null;
+      if (defCount + remainingInTopN < threshold) return null;
+      return 'Under';
     }
-    case 'trade_count': {
-      const threshold = rule.threshold as number;
-      const count = picks.filter(p => p.isTrade).length;
-      if (count > threshold) return 'Over';
-      if (count + remaining < threshold) return 'Under';
-      return count < threshold ? 'Under' : 'Over';
-    }
+
     case 'player_pick_number': {
+      // If we haven't passed the threshold and the player isn't drafted,
+      // Under is the status quo (player could still go before threshold).
+      // Once the player is drafted or the next pick number passes the
+      // threshold, the engine resolves the prop and we shouldn't be
+      // projecting it at all.
       const playerName = rule.playerName as string;
       const threshold = rule.threshold as number;
+      if (!playerName || typeof threshold !== 'number') return null;
       const pickedNames = new Set(picks.map(p => normalize(p.playerName)));
-      const normalized = normalize(playerName);
-      // If we've passed the threshold without the player → Over will win
-      if (!pickedNames.has(normalized)) {
-        const nextPickNum = picks.length < totalPicks ? picks.length + 1 : totalPicks;
-        if (nextPickNum > threshold) return 'Over';
-        return 'Under'; // leaning toward being picked soon
-      }
-      return null; // shouldn't get here since the prop would be resolved
+      if (pickedNames.has(normalize(playerName))) return null;
+      const nextPickNum = picks.length < totalPicks ? picks.length + 1 : totalPicks;
+      if (nextPickNum > threshold) return null;
+      return 'Under';
     }
+
+    // Yes/No props — project toward "hasn't happened yet" while unresolved.
     case 'trade_in_range': {
       const start = rule.pickStart as number;
       const end = rule.pickEnd as number;
+      if (typeof start !== 'number' || typeof end !== 'number') return null;
       const inRange = picks.filter(p => p.pickNumber >= start && p.pickNumber <= end);
-      const hasTrade = inRange.some(p => p.isTrade);
-      if (hasTrade) return 'Yes';
-      if (inRange.length >= end - start + 1) return 'No';
-      return 'No'; // default leaning: no trade until proven otherwise
+      if (inRange.some(p => p.isTrade)) return null; // already Yes, resolved
+      if (inRange.length >= end - start + 1) return null; // all in, No resolved
+      return 'No';
     }
     case 'heisman_finalist_drafted': {
       const finalists = ['Diego Pavia', 'Jeremiyah Love', 'Julian Sayin'];
       const pickedNames = new Set(picks.map(p => normalize(p.playerName)));
-      if (finalists.some(f => pickedNames.has(normalize(f)))) return 'Yes';
-      if (picks.length >= totalPicks) return 'No';
-      return 'Yes'; // most finalists historically go in round 1, lean Yes
+      if (finalists.some(f => pickedNames.has(normalize(f)))) return null;
+      if (picks.length >= totalPicks) return null;
+      return 'No';
     }
     case 'college_in_top_n': {
-      const college = (rule.college as string).toLowerCase();
+      const college = (rule.college as string || '').toLowerCase();
       const n = rule.topN as number;
+      if (!college || typeof n !== 'number') return null;
       const hit = picks.some(p => p.pickNumber <= n && p.college.toLowerCase() === college);
-      if (hit) return 'Yes';
+      if (hit) return null;
       const topNPicks = picks.filter(p => p.pickNumber <= n);
-      if (topNPicks.length >= n) return 'No';
-      return 'No'; // default to No until a hit appears
+      if (topNPicks.length >= n) return null;
+      return 'No';
     }
+
     default:
       return null;
   }
