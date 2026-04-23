@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import AppShell from '@/components/AppShell';
 
 interface Question {
@@ -37,6 +37,13 @@ export default function EntriesPage() {
   const [highlightQ, setHighlightQ] = useState<string | null>(null);
   const year = 2026;
 
+  // Refs for syncing a "ghost" horizontal scrollbar above the table with
+  // the actual table scroll container below it.
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const topInnerRef = useRef<HTMLDivElement>(null);
+  const syncSourceRef = useRef<'top' | 'table' | null>(null);
+
   useEffect(() => {
     Promise.all([
       fetch(`/api/questions?year=${year}`).then(r => r.json()),
@@ -55,6 +62,42 @@ export default function EntriesPage() {
         setLoading(false);
       });
   }, []);
+
+  // Keep the ghost scrollbar's inner div width equal to the table's scroll
+  // width so dragging its thumb covers the exact same range as the real one.
+  useEffect(() => {
+    const tableEl = tableScrollRef.current?.querySelector('table');
+    const inner = topInnerRef.current;
+    if (!tableEl || !inner) return;
+
+    const update = () => {
+      inner.style.width = `${tableEl.scrollWidth}px`;
+    };
+    update();
+
+    const ro = new ResizeObserver(update);
+    ro.observe(tableEl);
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [entries, questions]);
+
+  const onTopScroll = () => {
+    if (syncSourceRef.current === 'table') { syncSourceRef.current = null; return; }
+    syncSourceRef.current = 'top';
+    if (tableScrollRef.current && topScrollRef.current) {
+      tableScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    }
+  };
+  const onTableScroll = () => {
+    if (syncSourceRef.current === 'top') { syncSourceRef.current = null; return; }
+    syncSourceRef.current = 'table';
+    if (tableScrollRef.current && topScrollRef.current) {
+      topScrollRef.current.scrollLeft = tableScrollRef.current.scrollLeft;
+    }
+  };
 
   // Per-entry totals (points earned + correct count) for the header
   const entryTotals = useMemo(() => {
@@ -154,18 +197,33 @@ export default function EntriesPage() {
           ))}
         </div>
 
-        {/* Desktop: table. The outer div scrolls horizontally, and the first
-            column is sticky so the question stays in view while you scan
-            across entries. */}
+        {/* Desktop: table with
+            - a ghost scrollbar ABOVE the table, synced to the real one,
+            - a sticky header row so entry names stay visible when scrolling,
+            - a sticky left column so questions stay visible when scrolling sideways. */}
         <div className="hidden md:block">
           <p className="text-xs text-muted mb-2">
-            Scroll sideways to see all entries. Question column stays put.
+            Scroll sideways to see all entries. Question column and entry headers stay put.
           </p>
-          <div className="border border-card-border rounded-xl overflow-x-auto overflow-y-visible bg-white">
+
+          {/* Ghost scrollbar at the top */}
+          <div
+            ref={topScrollRef}
+            onScroll={onTopScroll}
+            className="overflow-x-auto overflow-y-hidden h-4 border-x border-t border-card-border rounded-t-xl bg-card"
+          >
+            <div ref={topInnerRef} style={{ height: 1 }} />
+          </div>
+
+          <div
+            ref={tableScrollRef}
+            onScroll={onTableScroll}
+            className="overflow-auto max-h-[calc(100vh-240px)] border border-card-border rounded-b-xl bg-white"
+          >
             <table className="text-sm border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-30">
                 <tr className="bg-card border-b border-card-border">
-                  <th className="sticky left-0 z-20 bg-card border-r border-card-border text-left py-2.5 px-3 font-semibold text-muted text-xs uppercase tracking-wide w-[280px] min-w-[280px]">
+                  <th className="sticky left-0 z-40 bg-card border-r border-card-border text-left py-2.5 px-3 font-semibold text-muted text-xs uppercase tracking-wide w-[280px] min-w-[280px] shadow-[2px_0_0_0_var(--card-border)]">
                     Question
                   </th>
                   {entries.map(entry => {
@@ -173,7 +231,7 @@ export default function EntriesPage() {
                     return (
                       <th
                         key={entry.id}
-                        className="py-2 px-3 font-semibold text-center border-r border-card-border/50 last:border-r-0 min-w-[140px] max-w-[180px]"
+                        className="bg-card py-2 px-3 font-semibold text-center border-r border-card-border/50 last:border-r-0 min-w-[140px] max-w-[180px]"
                       >
                         <div className="text-foreground text-xs truncate" title={entry.displayName}>
                           {entry.displayName}
