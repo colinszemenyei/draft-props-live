@@ -29,11 +29,30 @@ export async function DELETE(
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
   }
 
-  // Find entries so we can also remove their scores
+  // Gather ids up front so we can delete in FK-safe order.
+  // FK graph: mock_scores → mock_drafts → entries → users
+  //           scores      → entries     → users
+  //           sessions                   → users
+  // So: drop mock_scores, then mock_drafts (they reference entries),
+  // then scores, then entries, then sessions, then the user.
   const entryIds = (await client.execute({
     sql: 'SELECT id FROM entries WHERE user_id = ?',
     args: [id],
   })).rows.map(r => r.id as string);
+
+  const mockIds = (await client.execute({
+    sql: 'SELECT id FROM mock_drafts WHERE user_id = ?',
+    args: [id],
+  })).rows.map(r => r.id as string);
+
+  if (mockIds.length > 0) {
+    const placeholders = mockIds.map(() => '?').join(',');
+    await client.execute({
+      sql: `DELETE FROM mock_scores WHERE mock_draft_id IN (${placeholders})`,
+      args: mockIds,
+    });
+  }
+  await client.execute({ sql: 'DELETE FROM mock_drafts WHERE user_id = ?', args: [id] });
 
   if (entryIds.length > 0) {
     const placeholders = entryIds.map(() => '?').join(',');
@@ -43,20 +62,6 @@ export async function DELETE(
     });
   }
   await client.execute({ sql: 'DELETE FROM entries WHERE user_id = ?', args: [id] });
-
-  // Same for mock drafts + mock scores
-  const mockIds = (await client.execute({
-    sql: 'SELECT id FROM mock_drafts WHERE user_id = ?',
-    args: [id],
-  })).rows.map(r => r.id as string);
-  if (mockIds.length > 0) {
-    const placeholders = mockIds.map(() => '?').join(',');
-    await client.execute({
-      sql: `DELETE FROM mock_scores WHERE mock_draft_id IN (${placeholders})`,
-      args: mockIds,
-    });
-  }
-  await client.execute({ sql: 'DELETE FROM mock_drafts WHERE user_id = ?', args: [id] });
 
   await client.execute({ sql: 'DELETE FROM sessions WHERE user_id = ?', args: [id] });
   await client.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [id] });
