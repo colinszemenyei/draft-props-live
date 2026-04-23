@@ -220,43 +220,26 @@ export default function DraftBoardPage() {
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="md:ml-48">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Draft Board</h1>
           <span className="text-sm text-muted">{picks.length}/32 picks</span>
         </div>
 
-        {/* Layout: scoring sidebar + main content.
-            On lg+ it's side-by-side; on mobile the sidebar stacks on top. */}
-        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
-          <aside className="lg:sticky lg:top-20 lg:self-start">
+        {/* Desktop: 3 columns — scoring (left, near menu) | picks (center) |
+            on-the-line (right). Tablet lg: drop to 2 columns with on-the-line
+            stacked under picks. Mobile: full stack. */}
+        <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] xl:grid-cols-[220px_1fr_340px] gap-4">
+          <aside className="lg:sticky lg:top-20 lg:self-start order-1">
             <ScoringSidebar config={scoringConfig} nextPickNum={nextPickNum} />
           </aside>
 
-          <div className="space-y-5 min-w-0">
-            {/* On the line */}
-            {propEntries.length > 0 && (
-              <section>
-                <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-sm font-bold uppercase tracking-wide text-primary">
-                    On the Line
-                  </h2>
-                  {nextPickNum !== null && (
-                    <span className="text-xs text-muted">
-                      {onTheLineItems.length} prop{onTheLineItems.length === 1 ? '' : 's'} live
-                    </span>
-                  )}
-                </div>
-                <OnTheLine items={onTheLineItems} nextPickNum={nextPickNum} />
-              </section>
-            )}
-
-            <section>
-              <h2 className="text-sm font-bold uppercase tracking-wide text-primary mb-2">
-                Picks
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <section className="order-2 min-w-0">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-primary mb-2 xl:hidden">
+              Picks
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {DRAFT_ORDER.map(slot => {
             const pick = picks.find(p => p.pickNumber === slot.pick);
             const isOnClock = slot.pick === currentPick && picks.length < 32;
@@ -295,13 +278,29 @@ export default function DraftBoardPage() {
               </div>
             );
           })}
-              </div>
-            </section>
+            </div>
 
             {!mocksLoaded && picks.length > 0 && (
               <p className="text-center text-muted text-xs mt-2">Click on any pick to see pool predictions once entries are locked.</p>
             )}
-          </div>
+          </section>
+
+          {/* On the Line — rightmost column on xl+, stacks under picks on lg */}
+          {propEntries.length > 0 && (
+            <section className="order-3 min-w-0 lg:col-start-2 xl:col-start-auto xl:sticky xl:top-20 xl:self-start xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-sm font-bold uppercase tracking-wide text-primary">
+                  On the Line
+                </h2>
+                {nextPickNum !== null && (
+                  <span className="text-xs text-muted">
+                    {onTheLineItems.length} prop{onTheLineItems.length === 1 ? '' : 's'} live
+                  </span>
+                )}
+              </div>
+              <OnTheLine items={onTheLineItems} nextPickNum={nextPickNum} />
+            </section>
+          )}
         </div>
       </div>
 

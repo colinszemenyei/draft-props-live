@@ -22,7 +22,15 @@ const ADMIN_NAV = [
   { href: '/admin/settings', label: 'Settings' },
 ];
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({
+  children,
+  fullWidth = false,
+}: {
+  children: React.ReactNode;
+  /** When true, the main area stretches to the viewport width instead of
+      being capped at max-w-5xl. Used by the Draft Board's 3-column layout. */
+  fullWidth?: boolean;
+}) {
   const { user, loading, login, register, logout, updateDisplayName, updateContact } = useAuth();
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [displayName, setDisplayName] = useState('');
@@ -307,7 +315,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* Main */}
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-4">
+      <main className={`flex-1 w-full px-4 py-4 ${fullWidth ? '' : 'max-w-5xl mx-auto'}`}>
         {children}
       </main>
 
