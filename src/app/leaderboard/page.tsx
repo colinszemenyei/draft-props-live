@@ -256,17 +256,17 @@ export default function LeaderboardPage() {
               className={`text-xs font-semibold px-3 py-1.5 rounded-md transition ${
                 viewMode === 'projected' ? 'bg-primary text-white' : 'text-muted hover:text-foreground'
               }`}
-              title="Shows what each total would be if every still-live prop resolves in its current leaning direction."
+              title="Projects each total assuming every still-live Under (or No) holds."
             >
-              If Props Hold
+              If Unders Hold
             </button>
           </div>
         </div>
 
         {viewMode === 'projected' && (
           <p className="text-xs text-muted mb-3">
-            Projected totals assume every unresolved over/under prop resolves in its current leaning.
-            Mock-draft points use already-earned values only. Ranks re-sort.
+            Adds projected points for every still-live Under answer (and No on trade/finalist/college props).
+            Already-resolved props use real earned points. Mock points don&apos;t project. Ranks re-sort.
           </p>
         )}
 
