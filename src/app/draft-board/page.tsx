@@ -87,8 +87,15 @@ export default function DraftBoardPage() {
 
   useEffect(() => {
     fetch(`/api/draft-picks?year=${year}`)
-      .then(r => r.json())
-      .then(data => { setPicks(data); setLoading(false); });
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        // Defensive: only use the response if it's actually an array.
+        // If /api/draft-picks returns an error envelope (e.g. on session
+        // expiry) we don't want to poison downstream picks.xxx() calls.
+        setPicks(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setPicks([]))
+      .finally(() => setLoading(false));
   }, []);
 
   // Load all mock drafts (only works after lock)
@@ -221,7 +228,7 @@ export default function DraftBoardPage() {
         {/* Layout: scoring sidebar + main content.
             On lg+ it's side-by-side; on mobile the sidebar stacks on top. */}
         <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
-          <aside className="lg:sticky lg:top-18 lg:self-start">
+          <aside className="lg:sticky lg:top-20 lg:self-start">
             <ScoringSidebar config={scoringConfig} nextPickNum={nextPickNum} />
           </aside>
 
