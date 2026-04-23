@@ -37,7 +37,7 @@ export default function OnTheLine({ items, nextPickNum }: Props) {
 function OnTheLineCard({ item }: { item: OnTheLineItem }) {
   const totalEntries = item.buckets.reduce((s, b) => s + b.entries.length, 0);
   const urgencyColor =
-    item.urgency === 'This pick' || item.urgency === 'Next one clinches'
+    item.urgency === 'This pick' || item.urgency === 'Next one clinches' || item.urgency === 'One away from Over'
       ? 'bg-accent text-white'
       : item.urgency === 'In range' || item.urgency.startsWith('Next ')
         ? 'bg-amber-100 text-amber-800 border border-amber-200'
@@ -57,12 +57,58 @@ function OnTheLineCard({ item }: { item: OnTheLineItem }) {
           <span>·</span>
           <span>{totalEntries} answered</span>
         </div>
-        <p className="text-xs text-muted mt-1.5">{item.explainer}</p>
+        {item.tally && <TallyBar tally={item.tally} />}
+        {!item.tally && <p className="text-xs text-muted mt-1.5">{item.explainer}</p>}
       </div>
       <div className="divide-y divide-card-border">
         {item.buckets.map(bucket => (
           <Bucket key={bucket.label} bucket={bucket} total={totalEntries} />
         ))}
+      </div>
+    </div>
+  );
+}
+
+function TallyBar({
+  tally,
+}: {
+  tally: { current: number; threshold: number; label: string; maxPossible?: number };
+}) {
+  const { current, threshold, label } = tally;
+  const isOver = current > threshold;
+  const atTippingPoint = !isOver && current >= Math.floor(threshold);
+
+  // The progress bar spans from 0 up to 2x the threshold (or maxPossible if
+  // capped, like a top-10 count). Clamped so visually we fill at most 100%.
+  const scaleMax = tally.maxPossible ?? Math.ceil(threshold * 2);
+  const currentPct = Math.min(100, (current / scaleMax) * 100);
+  const thresholdPct = Math.min(100, (threshold / scaleMax) * 100);
+
+  return (
+    <div className="mt-2.5">
+      <div className="flex items-baseline justify-between mb-1">
+        <div className="text-xs text-muted">{label}</div>
+        <div className="text-xs tabular-nums">
+          <span className={`text-base font-bold ${isOver ? 'text-success' : atTippingPoint ? 'text-accent' : 'text-foreground'}`}>
+            {current}
+          </span>
+          <span className="text-muted"> / {threshold}</span>
+        </div>
+      </div>
+      <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
+        {/* Current fill */}
+        <div
+          className={`absolute inset-y-0 left-0 rounded-full transition-all ${
+            isOver ? 'bg-success' : atTippingPoint ? 'bg-accent' : 'bg-primary/50'
+          }`}
+          style={{ width: `${currentPct}%` }}
+        />
+        {/* Threshold marker line */}
+        <div
+          className="absolute top-0 bottom-0 w-0.5 bg-foreground/50"
+          style={{ left: `${thresholdPct}%` }}
+          title={`Threshold: ${threshold}`}
+        />
       </div>
     </div>
   );

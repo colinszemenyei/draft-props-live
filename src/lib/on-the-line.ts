@@ -50,6 +50,16 @@ export interface OnTheLineItem {
     entries: string[]; // displayNames
     isFavored?: boolean; // highlight if the next pick would benefit this bucket
   }>;
+  /**
+   * For count-based props (totals / over-under on a count), the running tally
+   * vs. the threshold so users can see where it stands at a glance.
+   */
+  tally?: {
+    current: number;
+    threshold: number;
+    label: string;       // e.g. "QBs taken" or "SEC players"
+    maxPossible?: number; // e.g. 10 for a top-10 defensive count
+  };
 }
 
 function normalizePlayerName(name: string): string {
@@ -311,9 +321,12 @@ export function computeOnTheLine(
         const remaining = 32 - picks.length;
         if (count > threshold) break; // already resolved Over
         if (count + remaining < threshold) break; // already resolved Under
-        // Only interesting when we're near the threshold
-        const distance = Math.abs(count - threshold);
-        if (distance > 1.5) break;
+
+        // How many more of this position before Over locks in?
+        const picksUntilTip = Math.max(0, Math.ceil(threshold - count));
+        // Closer to tipping = more imminent. Far-from-tipping but still live
+        // stays visible so users always see the tally.
+        const imminence = picksUntilTip <= 1 ? 2 : picksUntilTip <= 2 ? 5 : 9;
 
         const buckets = bucketEntries(entries, q.id, (ans) =>
           ans === 'Over' || ans === 'Under' ? ans as string : null,
@@ -322,9 +335,89 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          imminence: 10,
-          urgency: 'Ongoing',
+          imminence,
+          urgency: picksUntilTip <= 1 ? 'One away from Over' : 'Ongoing',
           explainer: `${count} ${pos}${count === 1 ? '' : 's'} taken. Threshold: ${threshold}.`,
+          tally: {
+            current: count,
+            threshold,
+            label: `${pos}${count === 1 ? '' : 's'} drafted`,
+          },
+          buckets: [
+            { label: 'Over', entries: buckets.get('Over') || [] },
+            { label: 'Under', entries: buckets.get('Under') || [] },
+          ],
+        });
+        break;
+      }
+
+      // ================================================================
+      case 'conference_count': {
+        const conf = (rule as { conference?: string }).conference;
+        const threshold = (rule as { threshold?: number }).threshold;
+        if (!conf || typeof threshold !== 'number') break;
+        const count = picks.filter(p => p.conference === conf).length;
+        const remaining = 32 - picks.length;
+        if (count > threshold) break;
+        if (count + remaining < threshold) break;
+
+        const picksUntilTip = Math.max(0, Math.ceil(threshold - count));
+        const imminence = picksUntilTip <= 1 ? 3 : picksUntilTip <= 3 ? 7 : 11;
+
+        const buckets = bucketEntries(entries, q.id, (ans) =>
+          ans === 'Over' || ans === 'Under' ? ans as string : null,
+        );
+        items.push({
+          questionId: q.id,
+          questionText: q.questionText,
+          points: q.points,
+          imminence,
+          urgency: picksUntilTip <= 1 ? 'One away from Over' : 'Ongoing',
+          explainer: `${count} ${conf} player${count === 1 ? '' : 's'} taken. Threshold: ${threshold}.`,
+          tally: {
+            current: count,
+            threshold,
+            label: `${conf} players`,
+          },
+          buckets: [
+            { label: 'Over', entries: buckets.get('Over') || [] },
+            { label: 'Under', entries: buckets.get('Under') || [] },
+          ],
+        });
+        break;
+      }
+
+      // ================================================================
+      case 'state_count': {
+        const colleges = (rule as { colleges?: string[] }).colleges || [];
+        const threshold = (rule as { threshold?: number }).threshold;
+        if (colleges.length === 0 || typeof threshold !== 'number') break;
+        const collegeSet = new Set(colleges.map(c => c.toLowerCase()));
+        const count = picks.filter(p => collegeSet.has(p.college.toLowerCase())).length;
+        const remaining = 32 - picks.length;
+        if (count > threshold) break;
+        if (count + remaining < threshold) break;
+
+        const picksUntilTip = Math.max(0, Math.ceil(threshold - count));
+        const imminence = picksUntilTip <= 1 ? 3 : picksUntilTip <= 3 ? 7 : 11;
+
+        const buckets = bucketEntries(entries, q.id, (ans) =>
+          ans === 'Over' || ans === 'Under' ? ans as string : null,
+        );
+        // Label pulled from the question text if possible (e.g. "state of Ohio")
+        const stateName = q.questionText.match(/state of (\w+)/i)?.[1] || 'State';
+        items.push({
+          questionId: q.id,
+          questionText: q.questionText,
+          points: q.points,
+          imminence,
+          urgency: picksUntilTip <= 1 ? 'One away from Over' : 'Ongoing',
+          explainer: `${count} pick${count === 1 ? '' : 's'} so far from eligible colleges. Threshold: ${threshold}.`,
+          tally: {
+            current: count,
+            threshold,
+            label: `${stateName} picks`,
+          },
           buckets: [
             { label: 'Over', entries: buckets.get('Over') || [] },
             { label: 'Under', entries: buckets.get('Under') || [] },
@@ -440,6 +533,12 @@ export function computeOnTheLine(
           imminence: Math.max(0, n - picks.length),
           urgency: `Through pick #${n}`,
           explainer: `${defCount} defensive players in top ${topNPicks.length}. Threshold: ${threshold}.`,
+          tally: {
+            current: defCount,
+            threshold,
+            label: `Defensive players in top ${n}`,
+            maxPossible: n,
+          },
           buckets: [
             { label: 'Over', entries: buckets.get('Over') || [] },
             { label: 'Under', entries: buckets.get('Under') || [] },
