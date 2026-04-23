@@ -158,20 +158,12 @@ export default function LeaderboardPage() {
     }
   }
 
-  if (loading) {
-    return <AppShell><div className="md:ml-48 flex justify-center py-12"><div className="text-muted animate-pulse">Loading leaderboard...</div></div></AppShell>;
-  }
-
-  if (error) {
-    return (
-      <AppShell>
-        <div className="md:ml-48 text-center py-12">
-          <h1 className="text-2xl font-bold mb-4">Leaderboard</h1>
-          <p className="text-muted">The leaderboard will be available after entries lock.</p>
-        </div>
-      </AppShell>
-    );
-  }
+  // HOOK ORDER: all hooks MUST be called before any conditional return.
+  // Previously, the useMemo calls below sat after the `if (loading)` /
+  // `if (error)` returns, which made React skip them during the initial
+  // loading render and call them on the next render — a classic hooks
+  // ordering violation that crashed the whole page with "Rendered fewer
+  // hooks than expected."
 
   // Per-row: points available + projected total. Mocks aren't projected
   // (no clear "leaning" for a specific pick slot) — only prop points shift.
@@ -226,6 +218,22 @@ export default function LeaderboardPage() {
     );
     return withProjected.map((w, i) => ({ ...w.row, rank: i + 1 }));
   }, [viewMode, leaderboard, projectionByKey]);
+
+  // Early returns AFTER all hooks have been called so hook order stays stable.
+  if (loading) {
+    return <AppShell><div className="md:ml-48 flex justify-center py-12"><div className="text-muted animate-pulse">Loading leaderboard...</div></div></AppShell>;
+  }
+
+  if (error) {
+    return (
+      <AppShell>
+        <div className="md:ml-48 text-center py-12">
+          <h1 className="text-2xl font-bold mb-4">Leaderboard</h1>
+          <p className="text-muted">The leaderboard will be available after entries lock.</p>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
