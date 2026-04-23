@@ -33,8 +33,13 @@ export interface OnTheLineItem {
   questionId: string;
   questionText: string;
   points: number;
-  /** Higher = more imminent / dramatic */
-  relevance: number;
+  /**
+   * Picks-until-potentially-resolved. Lower = more imminent.
+   *   0   → could resolve on the very next pick
+   *   N   → N picks from now
+   *   99  → ongoing / no clear resolution moment
+   */
+  imminence: number;
   /** Short tag, e.g. "This pick", "Next few picks", "Ongoing" */
   urgency: string;
   /** Short reason explaining why it's live right now. */
@@ -123,7 +128,7 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: 100,
+          imminence: 0, // exactly this pick
           urgency: 'This pick',
           explainer: `Decided by pick #${pickNum}.`,
           buckets: Array.from(buckets.entries())
@@ -158,7 +163,9 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: 90 - Math.max(0, nextPickNum - 1) * 0.1 + (threshold - nextPickNum) * 0.01,
+          // Distance from the upcoming pick to the threshold. Player-O/U
+          // questions with a near threshold bubble to the top.
+          imminence: Math.max(0, threshold - nextPickNum),
           urgency: remainingBeforeThreshold <= 1 ? 'This pick' : `Next ${remainingBeforeThreshold} picks`,
           explainer:
             `${playerName} not yet picked. ` +
@@ -188,7 +195,8 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: 70,
+          // Can resolve any time — treat as mid-priority
+          imminence: 8,
           urgency: 'Ongoing',
           explainer:
             `${playerName} not yet picked. Each slot tips the answer — currently ` +
@@ -211,7 +219,7 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: 100,
+          imminence: 0,
           urgency: 'This pick',
           explainer: 'Decided by pick #1.',
           buckets: Array.from(buckets.entries())
@@ -233,7 +241,7 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: 60,
+          imminence: 6,
           urgency: 'Ongoing',
           explainer: `No ${pos} has gone yet. First one clinches it.`,
           buckets: Array.from(buckets.entries())
@@ -255,7 +263,7 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: 60,
+          imminence: 6,
           urgency: 'Ongoing',
           explainer: `No ${label} has gone yet. First one clinches it.`,
           buckets: Array.from(buckets.entries())
@@ -283,7 +291,8 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: 75,
+          // 0 if next one clinches, 1-2 if we need a couple more
+          imminence: Math.max(0, n - countSoFar - 1),
           urgency: countSoFar === n - 1 ? 'Next one clinches' : 'Close',
           explainer: `${countSoFar} ${pos}${countSoFar === 1 ? '' : 's'} gone — ${ord} ${pos} decides it.`,
           buckets: Array.from(buckets.entries())
@@ -313,7 +322,7 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: 50,
+          imminence: 10,
           urgency: 'Ongoing',
           explainer: `${count} ${pos}${count === 1 ? '' : 's'} taken. Threshold: ${threshold}.`,
           buckets: [
@@ -343,7 +352,8 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: nextPickNum >= start && nextPickNum <= end ? 80 : 40,
+          // 0 if we're currently in the range, else picks until we enter it
+          imminence: nextPickNum >= start && nextPickNum <= end ? 0 : Math.max(0, start - nextPickNum),
           urgency: nextPickNum >= start && nextPickNum <= end ? 'In range' : 'Coming up',
           explainer: `Watching picks #${start}-${end} for a trade. ${rangePicks.length} of ${end - start + 1} in without one.`,
           buckets: [
@@ -369,7 +379,7 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: 55,
+          imminence: 15, // can resolve any pick — treat as background
           urgency: 'Ongoing',
           explainer: `None of the non-winner finalists have been drafted yet.`,
           buckets: [
@@ -396,7 +406,8 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: 45,
+          // Picks remaining in the top-N window
+          imminence: Math.max(0, n - picks.length),
           urgency: `Through pick #${n}`,
           explainer: `No ${college} player drafted in the top ${n} yet.`,
           buckets: [
@@ -426,7 +437,7 @@ export function computeOnTheLine(
           questionId: q.id,
           questionText: q.questionText,
           points: q.points,
-          relevance: 65,
+          imminence: Math.max(0, n - picks.length),
           urgency: `Through pick #${n}`,
           explainer: `${defCount} defensive players in top ${topNPicks.length}. Threshold: ${threshold}.`,
           buckets: [
@@ -439,7 +450,9 @@ export function computeOnTheLine(
     }
   }
 
-  // Sort by relevance descending
-  items.sort((a, b) => b.relevance - a.relevance);
+  // Sort by imminence ascending (most-imminent first). Higher point value
+  // breaks ties so a 3-pt prop outranks a 1-pt prop when both are equally
+  // close to resolving.
+  items.sort((a, b) => a.imminence - b.imminence || b.points - a.points);
   return items;
 }
