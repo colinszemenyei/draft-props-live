@@ -4,8 +4,22 @@ import { useState, useEffect, useMemo } from 'react';
 import AppShell from '@/components/AppShell';
 import { useSSE } from '@/lib/hooks';
 import { DRAFT_ORDER_2026 } from '@/lib/draft-order';
+import ScoringSidebar from '@/components/ScoringSidebar';
+import OnTheLine from '@/components/OnTheLine';
+import { computeOnTheLine } from '@/lib/on-the-line';
+import type { MockScoringConfig } from '@/lib/db/schema';
 
 const DRAFT_ORDER = DRAFT_ORDER_2026;
+
+const DEFAULT_SCORING_CONFIG: MockScoringConfig = {
+  tiers: [
+    { label: 'Picks 1-5', pickStart: 1, pickEnd: 5, exactPick: 3, within1: 1, within2: 0 },
+    { label: 'Picks 6-15', pickStart: 6, pickEnd: 15, exactPick: 5, within1: 2, within2: 1 },
+    { label: 'Picks 16-25', pickStart: 16, pickEnd: 25, exactPick: 7, within1: 3, within2: 1 },
+    { label: 'Picks 26-32', pickStart: 26, pickEnd: 32, exactPick: 10, within1: 5, within2: 2 },
+  ],
+  lateRoundBonus: { enabled: true, threshold: 20, points: 2 },
+};
 
 interface DraftPick {
   id: string;
@@ -15,12 +29,32 @@ interface DraftPick {
   position: string;
   college: string;
   conference: string;
+  isTrade?: boolean;
 }
 
 interface MockDraftEntry {
   userId: string;
   displayName: string;
   picks: Record<string, string>;
+}
+
+interface PropQuestion {
+  id: string;
+  questionText: string;
+  questionType: string;
+  answerOptions: string[] | null;
+  points: number;
+  category: string | null;
+  scoringRule: Record<string, unknown> | null;
+}
+
+interface PropEntry {
+  id: string;
+  userId: string;
+  displayName: string;
+  entryName?: string;
+  picks: Record<string, unknown>;
+  submittedAt: string | null;
 }
 
 const POSITION_COLORS: Record<string, string> = {
@@ -44,6 +78,9 @@ export default function DraftBoardPage() {
   const [mockDrafts, setMockDrafts] = useState<MockDraftEntry[]>([]);
   const [mocksLoaded, setMocksLoaded] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [questions, setQuestions] = useState<PropQuestion[]>([]);
+  const [propEntries, setPropEntries] = useState<PropEntry[]>([]);
+  const [scoringConfig, setScoringConfig] = useState<MockScoringConfig>(DEFAULT_SCORING_CONFIG);
   const year = 2026;
 
   const sseEvent = useSSE('/api/sse/draft');
@@ -74,6 +111,48 @@ export default function DraftBoardPage() {
       .catch(() => setMocksLoaded(false));
   }, []);
 
+  // Load prop questions + entries for the "On the Line" card.
+  // /api/picks gates post-lock for non-admins, which is exactly when
+  // the draft board matters anyway.
+  useEffect(() => {
+    fetch(`/api/questions?year=${year}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { if (Array.isArray(data)) setQuestions(data); })
+      .catch(() => { /* silent */ });
+
+    fetch(`/api/picks?year=${year}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        if (!Array.isArray(data)) return;
+        // Disambiguate users with multiple entries by appending the entry name
+        const countByUser = new Map<string, number>();
+        for (const e of data) countByUser.set(e.userId, (countByUser.get(e.userId) || 0) + 1);
+        const mapped: PropEntry[] = data.map((e: PropEntry) => ({
+          ...e,
+          displayName:
+            (countByUser.get(e.userId) || 0) > 1 && e.entryName
+              ? `${e.displayName} — ${e.entryName}`
+              : e.displayName,
+        }));
+        setPropEntries(mapped.filter(e => e.submittedAt));
+      })
+      .catch(() => { /* silent */ });
+
+    fetch('/api/admin/year-settings')
+      .then(r => r.ok ? r.json() : null)
+      .then(rows => {
+        if (!Array.isArray(rows)) return;
+        const current = rows.find((y: { year: number }) => y.year === year);
+        if (!current) return;
+        const cfg = current.mockScoringConfig;
+        const parsed: MockScoringConfig | null = typeof cfg === 'string'
+          ? (() => { try { return JSON.parse(cfg); } catch { return null; } })()
+          : cfg;
+        if (parsed?.tiers?.length) setScoringConfig(parsed);
+      })
+      .catch(() => { /* silent */ });
+  }, []);
+
   useEffect(() => {
     if (sseEvent?.event === 'new_pick') {
       const pick = sseEvent.data as DraftPick;
@@ -86,7 +165,21 @@ export default function DraftBoardPage() {
     }
   }, [sseEvent]);
 
-  const currentPick = picks.length > 0 ? Math.max(...picks.map(p => p.pickNumber)) + 1 : 1;
+  // Next pick = smallest pick number not yet in the actual picks list.
+  // More robust than Math.max+1 when picks arrive out of order.
+  const nextPickNum = useMemo(() => {
+    const taken = new Set(picks.map(p => p.pickNumber));
+    const next = DRAFT_ORDER.find(d => !taken.has(d.pick));
+    return next ? next.pick : null;
+  }, [picks]);
+  // Legacy alias used by the existing grid rendering below
+  const currentPick = nextPickNum ?? 33;
+
+  // Compute which props are on the line right now
+  const onTheLineItems = useMemo(() => {
+    if (questions.length === 0 || propEntries.length === 0) return [];
+    return computeOnTheLine(questions, propEntries, picks, nextPickNum);
+  }, [questions, propEntries, picks, nextPickNum]);
 
   // Build mock picks for the selected slot
   const slotMockPicks = useMemo(() => {
@@ -120,12 +213,41 @@ export default function DraftBoardPage() {
   return (
     <AppShell>
       <div className="md:ml-48">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Draft Board</h1>
           <span className="text-sm text-muted">{picks.length}/32 picks</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        {/* Layout: scoring sidebar + main content.
+            On lg+ it's side-by-side; on mobile the sidebar stacks on top. */}
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
+          <aside className="lg:sticky lg:top-18 lg:self-start">
+            <ScoringSidebar config={scoringConfig} nextPickNum={nextPickNum} />
+          </aside>
+
+          <div className="space-y-5 min-w-0">
+            {/* On the line */}
+            {propEntries.length > 0 && (
+              <section>
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-sm font-bold uppercase tracking-wide text-primary">
+                    On the Line
+                  </h2>
+                  {nextPickNum !== null && (
+                    <span className="text-xs text-muted">
+                      {onTheLineItems.length} prop{onTheLineItems.length === 1 ? '' : 's'} live
+                    </span>
+                  )}
+                </div>
+                <OnTheLine items={onTheLineItems} nextPickNum={nextPickNum} />
+              </section>
+            )}
+
+            <section>
+              <h2 className="text-sm font-bold uppercase tracking-wide text-primary mb-2">
+                Picks
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {DRAFT_ORDER.map(slot => {
             const pick = picks.find(p => p.pickNumber === slot.pick);
             const isOnClock = slot.pick === currentPick && picks.length < 32;
@@ -164,11 +286,14 @@ export default function DraftBoardPage() {
               </div>
             );
           })}
-        </div>
+              </div>
+            </section>
 
-        {!mocksLoaded && picks.length > 0 && (
-          <p className="text-center text-muted text-xs mt-4">Click on any pick to see pool predictions once entries are locked.</p>
-        )}
+            {!mocksLoaded && picks.length > 0 && (
+              <p className="text-center text-muted text-xs mt-2">Click on any pick to see pool predictions once entries are locked.</p>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Pool Picks Modal */}
