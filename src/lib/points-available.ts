@@ -5,6 +5,8 @@
 //
 // An entry's total prop points = earned + still-available + already-lost.
 
+import { countDistinctTrades } from './trade-utils';
+
 interface Question {
   id: string;
   questionText: string;
@@ -20,7 +22,9 @@ interface DraftPickLite {
   position: string;
   college: string;
   conference: string;
+  team?: string;
   isTrade?: boolean;
+  originalTeam?: string | null;
 }
 
 interface EntryScore {
@@ -260,7 +264,7 @@ function isAnswerStillViable(
 
     case 'trade_count': {
       const threshold = rule.threshold as number;
-      const count = picks.filter(p => p.isTrade).length;
+      const count = countDistinctTrades(picks);
       if (count > threshold) return answer === 'Over';
       if (count + remaining < threshold) return answer === 'Under';
       return true;
@@ -398,7 +402,7 @@ function currentLeaning(question: Question, picks: DraftPickLite[], totalPicks =
         const colleges = ((rule.colleges as string[]) || []).map(c => c.toLowerCase());
         count = picks.filter(p => colleges.includes(p.college.toLowerCase())).length;
       } else if (ruleType === 'trade_count') {
-        count = picks.filter(p => p.isTrade).length;
+        count = countDistinctTrades(picks);
       }
       // If count already exceeded threshold, the engine would have
       // resolved this prop as Over. If we're computing a projection,

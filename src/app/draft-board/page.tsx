@@ -30,6 +30,7 @@ interface DraftPick {
   college: string;
   conference: string;
   isTrade?: boolean;
+  originalTeam?: string | null;
 }
 
 interface MockDraftEntry {

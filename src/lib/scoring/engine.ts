@@ -5,6 +5,7 @@ import { v4 as uuid } from 'uuid';
 import conferences from '../conferences.json';
 import { scoreAllMockDrafts, getMockLeaderboard } from './mock-scoring';
 import { HEISMAN_FINALISTS_2025 } from '../heisman';
+import { countDistinctTrades } from '../trade-utils';
 
 const DEFENSIVE_POSITIONS = ['CB', 'S', 'LB', 'DT', 'DE', 'EDGE'];
 const OL_POSITIONS = ['OT', 'IOL', 'G', 'C', 'OL'];
@@ -43,6 +44,7 @@ interface DraftPick {
   position: string;
   college: string;
   conference: string;
+  team: string;
   isTrade: boolean;
   originalTeam: string;
 }
@@ -313,9 +315,10 @@ function resolveQuestion(
     }
 
     case 'trade_count': {
-      // Over/under on total trades in round 1
+      // Over/under on total trade TRANSACTIONS in round 1. A two-team pick
+      // swap counts as one transaction, not two.
       const tradeThreshold = rule.threshold as number;
-      const tradeCount = picks.filter(p => p.isTrade).length;
+      const tradeCount = countDistinctTrades(picks);
       // Can resolve early if already over
       if (tradeCount > tradeThreshold) {
         return { resolved: true, isCorrect: answer === 'Over' };
@@ -416,6 +419,7 @@ export async function scoreAllEntries(year: number) {
     position: p.position,
     college: p.college,
     conference: p.conference,
+    team: p.team,
     isTrade: p.isTrade ?? false,
     originalTeam: p.originalTeam || '',
   }));

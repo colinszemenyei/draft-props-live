@@ -3,6 +3,8 @@
 // selection. For each one, buckets entries by their answer so the UI
 // can show who's cheering for what.
 
+import { countDistinctTrades } from './trade-utils';
+
 interface Question {
   id: string;
   questionText: string;
@@ -26,7 +28,9 @@ interface DraftPickLite {
   position: string;
   college: string;
   conference: string;
+  team?: string;
   isTrade?: boolean;
+  originalTeam?: string | null;
 }
 
 export interface OnTheLineItem {
@@ -461,7 +465,8 @@ export function computeOnTheLine(
       case 'trade_count': {
         const threshold = (rule as { threshold?: number }).threshold;
         if (typeof threshold !== 'number') break;
-        const tradeCount = picks.filter(p => p.isTrade).length;
+        // Count distinct trade transactions (pick-for-pick swaps = 1, not 2)
+        const tradeCount = countDistinctTrades(picks);
         const remaining = 32 - picks.length;
         if (tradeCount > threshold) break; // Over locked
         if (tradeCount + remaining < threshold) break; // Under locked
