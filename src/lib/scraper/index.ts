@@ -206,40 +206,52 @@ export async function pollDraftPicks(year: number) {
       const trade = isTradeDetected(pick.pickNumber, pick.team);
       const origTeam = originalTeamForPick.get(pick.pickNumber) || '';
 
-      await db.insert(draftPicks).values({
-        id: uuid(),
-        year,
-        pickNumber: pick.pickNumber,
-        team: pick.team,
-        playerName: pick.playerName,
-        position: normalizePosition(pick.position),
-        college,
-        conference,
-        isTrade: trade,
-        originalTeam: origTeam,
-      }).run();
+      try {
+        await db.insert(draftPicks).values({
+          id: uuid(),
+          year,
+          pickNumber: pick.pickNumber,
+          team: pick.team,
+          playerName: pick.playerName,
+          position: normalizePosition(pick.position),
+          college,
+          conference,
+          isTrade: trade,
+          originalTeam: origTeam,
+        }).run();
+        newPicksCount++;
+      } catch (err) {
+        console.error(`Insert failed for pick ${pick.pickNumber}:`, err);
+        continue; // don't let one failure block the rest
+      }
 
-      newPicksCount++;
-
-      // Broadcast the new pick
-      broadcastEvent('new_pick', {
-        pickNumber: pick.pickNumber,
-        team: pick.team,
-        playerName: pick.playerName,
-        position: normalizePosition(pick.position),
-        college,
-        conference,
-      });
+      // Broadcast — best-effort so a broadcast error doesn't stop the loop
+      try {
+        broadcastEvent('new_pick', {
+          pickNumber: pick.pickNumber,
+          team: pick.team,
+          playerName: pick.playerName,
+          position: normalizePosition(pick.position),
+          college,
+          conference,
+          isTrade: trade,
+        });
+      } catch (err) {
+        console.error('broadcast new_pick failed:', err);
+      }
     }
   }
 
+  // Score + leaderboard broadcast are best-effort. If these throw, the
+  // picks are still safely in the DB from above.
   if (newPicksCount > 0) {
-    // Re-score all entries
-    await scoreAllEntries(year);
-
-    // Broadcast score update
-    const { getLeaderboard } = await import('../scoring/engine');
-    broadcastEvent('score_update', { leaderboard: await getLeaderboard(year) });
+    try {
+      await scoreAllEntries(year);
+      const { getLeaderboard } = await import('../scoring/engine');
+      broadcastEvent('score_update', { leaderboard: await getLeaderboard(year) });
+    } catch (err) {
+      console.error('scoring/leaderboard broadcast failed:', err);
+    }
   }
 
   return { success: true, newPicks: newPicksCount, totalPicks: picks.length };

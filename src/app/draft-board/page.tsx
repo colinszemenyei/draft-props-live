@@ -169,8 +169,29 @@ export default function DraftBoardPage() {
       });
       setNewPickNum(pick.pickNumber);
       setTimeout(() => setNewPickNum(null), 3000);
+      // Also refetch from the DB so any picks we missed (SSE dropped, client
+      // was backgrounded, etc.) catch up.
+      fetch(`/api/draft-picks?year=${year}`)
+        .then(r => (r.ok ? r.json() : []))
+        .then(data => { if (Array.isArray(data)) setPicks(data); })
+        .catch(() => { /* silent */ });
     }
   }, [sseEvent]);
+
+  // Poll every 15 seconds as a safety net during the live draft in case
+  // SSE disconnects silently. Cheap and always pulls the canonical state.
+  useEffect(() => {
+    const id = setInterval(() => {
+      fetch(`/api/draft-picks?year=${year}`)
+        .then(r => (r.ok ? r.json() : []))
+        .then(data => {
+          if (!Array.isArray(data)) return;
+          setPicks(prev => (prev.length !== data.length ? data : prev));
+        })
+        .catch(() => { /* silent */ });
+    }, 15000);
+    return () => clearInterval(id);
+  }, []);
 
   // Next pick = smallest pick number not yet in the actual picks list.
   // More robust than Math.max+1 when picks arrive out of order.

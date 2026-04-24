@@ -31,31 +31,61 @@ export async function POST(request: NextRequest) {
   const college = body.college || '';
   const conference = body.conference || getConferenceForCollege(college);
 
-  await db.insert(draftPicks).values({
-    id: uuid(),
-    year: body.year,
-    pickNumber: body.pickNumber,
-    team: body.team,
-    playerName: body.playerName,
-    position: body.position,
-    college,
-    conference,
-  }).run();
+  // Step 1: persist the pick. If this fails, return the error so the client
+  // sees it. Use trade detection based on draft order.
+  const { DRAFT_ORDER_2026 } = await import('@/lib/draft-order');
+  const originalTeam = DRAFT_ORDER_2026.find(d => d.pick === body.pickNumber)?.team || '';
+  const normalize = (t: string) => String(t || '').toLowerCase().replace(/[^a-z]/g, '');
+  const isTrade =
+    !!originalTeam && !!body.team && normalize(originalTeam) !== normalize(body.team);
 
-  // Re-score and broadcast
-  await scoreAllEntries(body.year);
+  try {
+    await db.insert(draftPicks).values({
+      id: uuid(),
+      year: body.year,
+      pickNumber: body.pickNumber,
+      team: body.team,
+      playerName: body.playerName,
+      position: body.position,
+      college,
+      conference,
+      isTrade,
+      originalTeam,
+    }).run();
+  } catch (err) {
+    console.error('draft pick insert failed:', err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Insert failed' },
+      { status: 500 },
+    );
+  }
 
-  broadcastEvent('new_pick', {
-    pickNumber: body.pickNumber,
-    team: body.team,
-    playerName: body.playerName,
-    position: body.position,
-    college,
-    conference,
-  });
+  // Step 2: fire-and-forget broadcast so the draft board updates live. Do
+  // this BEFORE scoring because scoring is slower and sometimes throws —
+  // we don't want a scoring bug to prevent the pick from appearing.
+  try {
+    broadcastEvent('new_pick', {
+      pickNumber: body.pickNumber,
+      team: body.team,
+      playerName: body.playerName,
+      position: body.position,
+      college,
+      conference,
+      isTrade,
+    });
+  } catch (err) {
+    console.error('broadcast new_pick failed:', err);
+  }
 
-  const { getLeaderboard } = await import('@/lib/scoring/engine');
-  broadcastEvent('score_update', { leaderboard: await getLeaderboard(body.year) });
+  // Step 3: re-score and broadcast leaderboard. Best-effort — don't let a
+  // scoring bug prevent the pick from being saved.
+  try {
+    await scoreAllEntries(body.year);
+    const { getLeaderboard } = await import('@/lib/scoring/engine');
+    broadcastEvent('score_update', { leaderboard: await getLeaderboard(body.year) });
+  } catch (err) {
+    console.error('scoring/broadcast failed:', err);
+  }
 
   return NextResponse.json({ ok: true });
 }
