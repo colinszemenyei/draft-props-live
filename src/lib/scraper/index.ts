@@ -196,6 +196,8 @@ export async function pollDraftPicks(year: number) {
 
   failureCount = 0;
   let newPicksCount = 0;
+  const insertErrors: string[] = [];
+  let existingCount = 0;
 
   for (const pick of picks) {
     if (!pick.playerName || !pick.pickNumber) continue;
@@ -206,7 +208,9 @@ export async function pollDraftPicks(year: number) {
       args: [year, pick.pickNumber],
     })).rows[0];
 
-    if (!existing) {
+    if (existing) {
+      existingCount++;
+    } else {
       const college = normalizeCollege(pick.college);
       const conference = getConferenceForCollege(college);
       const trade = isTradeDetected(pick.pickNumber, pick.team);
@@ -227,7 +231,9 @@ export async function pollDraftPicks(year: number) {
         }).run();
         newPicksCount++;
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
         console.error(`Insert failed for pick ${pick.pickNumber}:`, err);
+        insertErrors.push(`#${pick.pickNumber} ${pick.playerName}: ${msg}`);
         continue; // don't let one failure block the rest
       }
 
@@ -260,7 +266,13 @@ export async function pollDraftPicks(year: number) {
     }
   }
 
-  return { success: true, newPicks: newPicksCount, totalPicks: picks.length };
+  return {
+    success: true,
+    newPicks: newPicksCount,
+    totalPicks: picks.length,
+    existingPicks: existingCount,
+    insertErrors,
+  };
 }
 
 export function startPolling(year: number) {

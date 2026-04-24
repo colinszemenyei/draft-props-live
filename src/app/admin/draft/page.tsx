@@ -120,7 +120,14 @@ export default function AdminDraftPage() {
       alert(`Scraper error: ${result?.error || 'Unknown error'}`);
     } else if (action === 'poll' && result) {
       if (result.success) {
-        alert(`Poll OK — ${result.newPicks ?? 0} new pick(s) added, ${result.totalPicks ?? 0} total from ESPN.`);
+        let msg =
+          `Poll OK — ${result.newPicks ?? 0} new pick(s) added, ` +
+          `${result.existingPicks ?? 0} already in DB, ` +
+          `${result.totalPicks ?? 0} total from ESPN.`;
+        if (result.insertErrors?.length) {
+          msg += `\n\nINSERT ERRORS:\n${result.insertErrors.join('\n')}`;
+        }
+        alert(msg);
       } else {
         alert(`Poll returned 0 picks from scrapers. Failure #${result.failureCount}. Check Render logs.`);
       }
