@@ -231,10 +231,17 @@ export async function pollDraftPicks(year: number) {
         }).run();
         newPicksCount++;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        // libsql errors: .code is usually what we need (e.g. SQLITE_CONSTRAINT,
+        // SQLITE_ERROR, UNIQUE constraint failed, etc.). Expose everything.
+        const e = err as { code?: string; message?: string; cause?: { message?: string } };
+        const shortMsg = [
+          e.code && `code=${e.code}`,
+          e.cause?.message && `cause=${e.cause.message}`,
+          e.message?.split('\n')[0],
+        ].filter(Boolean).join(' | ');
         console.error(`Insert failed for pick ${pick.pickNumber}:`, err);
-        insertErrors.push(`#${pick.pickNumber} ${pick.playerName}: ${msg}`);
-        continue; // don't let one failure block the rest
+        insertErrors.push(`#${pick.pickNumber}: ${shortMsg || String(err)}`);
+        continue;
       }
 
       // Broadcast — best-effort so a broadcast error doesn't stop the loop
