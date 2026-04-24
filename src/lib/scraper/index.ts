@@ -64,53 +64,54 @@ interface ScrapedPick {
   college: string;
 }
 
+// ESPN's public JSON API for draft data. Much more reliable than HTML
+// scraping — no layout changes to chase — and returns structured fields
+// including position ids, team mapping, and a per-pick `status`.
 async function scrapeESPN(): Promise<ScrapedPick[]> {
   try {
-    const res = await fetch('https://www.espn.com/nfl/draft/live', {
+    const res = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/draft', {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; DraftPropsLive/1.0)' },
     });
-    const html = await res.text();
-    const $ = cheerio.load(html);
+    if (!res.ok) return [];
+    const data = await res.json() as {
+      positions?: Array<{ id: string; abbreviation: string }>;
+      teams?: Array<{ id: string; displayName: string; shortDisplayName: string }>;
+      picks?: Array<{
+        status: string;
+        pick: number;
+        overall: number;
+        round: number;
+        traded: boolean;
+        athlete?: {
+          displayName?: string;
+          position?: { id?: string };
+          team?: { shortDisplayName?: string; location?: string };
+        };
+        teamId?: string | number;
+      }>;
+    };
+
+    const posMap = new Map<string, string>();
+    for (const p of data.positions || []) posMap.set(String(p.id), p.abbreviation);
+
+    const teamMap = new Map<string, string>();
+    for (const t of data.teams || []) teamMap.set(String(t.id), t.displayName);
+
     const picks: ScrapedPick[] = [];
+    for (const p of data.picks || []) {
+      if (p.round !== 1) continue;              // Round 1 only
+      if (p.status !== 'SELECTION_MADE') continue; // Skip on-clock / upcoming
+      if (!p.athlete?.displayName) continue;
 
-    // Try to find JSON data in script tags
-    $('script').each((_, el) => {
-      const content = $(el).html() || '';
-      if (content.includes('__espnfitt__') || content.includes('draftPicks')) {
-        try {
-          const match = content.match(/window\.__espnfitt__\s*=\s*(\{[\s\S]*?\});/);
-          if (match) {
-            const data = JSON.parse(match[1]);
-            // Navigate to draft picks in the data structure
-            if (data?.page?.content?.draftPicks) {
-              for (const pick of data.page.content.draftPicks) {
-                picks.push({
-                  pickNumber: pick.pickNumber || pick.overall,
-                  team: pick.team?.displayName || pick.team?.name || '',
-                  playerName: pick.player?.displayName || pick.player?.fullName || '',
-                  position: pick.player?.position?.abbreviation || '',
-                  college: pick.player?.college?.name || '',
-                });
-              }
-            }
-          }
-        } catch { /* ignore parse errors */ }
-      }
-    });
-
-    // Fallback: parse HTML structure
-    if (picks.length === 0) {
-      $('.pick-item, .draft-pick, [class*="PickCard"]').each((_, el) => {
-        const $el = $(el);
-        const pickNum = parseInt($el.find('[class*="pick-number"], [class*="pickNumber"]').text()) || 0;
-        const player = $el.find('[class*="player-name"], [class*="playerName"]').text().trim();
-        const team = $el.find('[class*="team-name"], [class*="teamName"]').text().trim();
-        const pos = $el.find('[class*="position"]').text().trim();
-        const college = $el.find('[class*="college"], [class*="school"]').text().trim();
-
-        if (pickNum && player) {
-          picks.push({ pickNumber: pickNum, team, playerName: player, position: pos, college });
-        }
+      picks.push({
+        pickNumber: p.overall,
+        team: teamMap.get(String(p.teamId)) || '',
+        playerName: p.athlete.displayName,
+        position: posMap.get(String(p.athlete.position?.id || '')) || '',
+        college:
+          p.athlete.team?.shortDisplayName ||
+          p.athlete.team?.location ||
+          '',
       });
     }
 
