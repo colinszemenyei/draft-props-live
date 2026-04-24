@@ -69,9 +69,14 @@ interface ScrapedPick {
 // including position ids, team mapping, and a per-pick `status`.
 async function scrapeESPN(): Promise<ScrapedPick[]> {
   try {
+    // `cache: 'no-store'` is critical — Next.js server-side fetch caches by
+    // default and would pin us to whatever response we saw first, even as
+    // the actual draft advances.
     const res = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/draft', {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; DraftPropsLive/1.0)' },
+      cache: 'no-store',
     });
+    console.log(`[scraper] ESPN API status=${res.status}`);
     if (!res.ok) return [];
     const data = await res.json() as {
       positions?: Array<{ id: string; abbreviation: string }>;
@@ -115,6 +120,7 @@ async function scrapeESPN(): Promise<ScrapedPick[]> {
       });
     }
 
+    console.log(`[scraper] ESPN returned ${picks.length} R1 picks with SELECTION_MADE`);
     return picks;
   } catch (error) {
     console.error('ESPN scrape failed:', error);

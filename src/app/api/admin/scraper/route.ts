@@ -17,16 +17,25 @@ export async function POST(request: NextRequest) {
 
   const { action, year } = await request.json();
 
-  if (action === 'poll') {
-    const result = await pollDraftPicks(year);
-    return NextResponse.json(result);
-  } else if (action === 'start') {
-    startPolling(year);
-    return NextResponse.json({ ok: true });
-  } else if (action === 'stop') {
-    stopPolling();
-    return NextResponse.json({ ok: true });
+  try {
+    if (action === 'poll') {
+      const result = await pollDraftPicks(year);
+      return NextResponse.json(result);
+    } else if (action === 'start') {
+      startPolling(year);
+      return NextResponse.json({ ok: true });
+    } else if (action === 'stop') {
+      stopPolling();
+      return NextResponse.json({ ok: true });
+    }
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+  } catch (err) {
+    // Surface the real error so the admin UI can show it instead of
+    // failing silently.
+    console.error(`scraper action '${action}' failed:`, err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Scraper action failed' },
+      { status: 500 },
+    );
   }
-
-  return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
 }

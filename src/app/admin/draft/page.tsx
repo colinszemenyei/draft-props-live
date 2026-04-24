@@ -58,20 +58,30 @@ export default function AdminDraftPage() {
   }
 
   async function savePick() {
-    if (!playerName || !team) return;
+    if (!playerName || !team) {
+      alert('Player name and team are both required');
+      return;
+    }
 
+    let res: Response;
     if (editingId) {
-      await fetch(`/api/draft-picks/${editingId}`, {
+      res = await fetch(`/api/draft-picks/${editingId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ team, playerName, position, college }),
       });
     } else {
-      await fetch('/api/draft-picks', {
+      res = await fetch('/api/draft-picks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ year, pickNumber, team, playerName, position, college }),
       });
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      alert(`Save failed: ${err.error || 'Unknown error'}`);
+      return;
     }
 
     setEditingId(null);
@@ -100,11 +110,21 @@ export default function AdminDraftPage() {
   }
 
   async function scraperAction(action: string) {
-    await fetch('/api/admin/scraper', {
+    const res = await fetch('/api/admin/scraper', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, year }),
     });
+    const result = await res.json().catch(() => null);
+    if (!res.ok) {
+      alert(`Scraper error: ${result?.error || 'Unknown error'}`);
+    } else if (action === 'poll' && result) {
+      if (result.success) {
+        alert(`Poll OK — ${result.newPicks ?? 0} new pick(s) added, ${result.totalPicks ?? 0} total from ESPN.`);
+      } else {
+        alert(`Poll returned 0 picks from scrapers. Failure #${result.failureCount}. Check Render logs.`);
+      }
+    }
     const status = await fetch('/api/admin/scraper').then(r => r.json());
     setScraperStatus(status);
     if (action === 'poll') loadData();
